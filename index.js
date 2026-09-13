@@ -322,7 +322,7 @@ export function apply(ctx, config = {}) {
     disposers.push(ctx.commands.register({
       definitionId: 'dsh-feynman:feynman',
       name: 'feynman',
-      description: 'Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys)',
+      description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys)',
       input: { hint: '<workflow | subcommand> [args]', attachments: true },
       recordInput: false,
       handler: (inv) => researchHandler(inv, ctx, sessionHandlers),
