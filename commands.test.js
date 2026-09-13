@@ -67,7 +67,7 @@ test('settings namespace serves row config as base', () => {
 test('one /feynman dispatcher covers every subcommand', async () => {
   const registered = []
   const followups = []
-  const agent = { id: 'test-agent', followup: (m) => followups.push(m), inject: () => {} }
+  const agent = { id: 'test-agent', session: { id: 'test-agent' }, followup: (m) => followups.push(m), inject: () => {} }
   apply({
     effect: (fn) => { fn(); return () => {} },
     commands: { register: (d) => { registered.push(d); return () => {} } },
@@ -90,4 +90,11 @@ test('one /feynman dispatcher covers every subcommand', async () => {
   const bare = await run('')
   assert.equal(bare.kind, 'success', 'bare /feynman shows help')
   assert.ok(followups.length > 0, 'workflow handlers queue model turns')
+  // Steering messages carry identity and a plugin source, never a forged human one.
+  for (const m of followups) {
+    assert.equal(m.role, 'user')
+    assert.equal(typeof m.id, 'string')
+    assert.equal(m.source.kind, 'plugin')
+  }
+  assert.equal(new Set(followups.map((m) => m.id)).size, followups.length, 'steering ids collide')
 })

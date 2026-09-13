@@ -166,9 +166,9 @@ function workflowHandler(kind) {
     const args = invocation.rawInput.trim()
     if (spec.required && !args) return err(usage)
     if (kind === 'review-loop' && args.toLowerCase() === 'stop') {
-      const loop = loops.get(invocation.agent.id)
+      const loop = loops.get(invocation.agent.session.id)
       if (!loop) return { kind: 'success', text: 'No review loop is running.' }
-      loops.delete(invocation.agent.id)
+      loops.delete(invocation.agent.session.id)
       return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
     }
     // Queue the workflow brief as the agent's next turn; the followup IS the work.
@@ -184,15 +184,21 @@ function workflowHandler(kind) {
 function reviewLoopPrompt(invocation, args) {
   const { target, rounds } = parseLoopArgs(args)
   if (!target) return null
-  loops.set(invocation.agent.id, { target, rounds, round: 1 })
+  loops.set(invocation.agent.session.id, { target, rounds, round: 1 })
   const brief = buildPrompt('review-loop', target, liveRefs())
   return `${brief}\n\nRound 1 of ${rounds}; follow-ups will drive re-review.`
 }
 
-/** Minimal user message (registry fills id/role); avoids importing dsh-llm out-of-tree. */
+/** Minimal user message; avoids importing dsh-llm out-of-tree. */
 function userMessage(invocation, text) {
   const blocks = [...invocation.attachments, { type: 'text', text }]
-  return { content: blocks, source: { kind: 'user' } }
+  return {
+    content: blocks,
+    // Plugin source, not forged 'user': title/outline/activity consumers gate human input on kind === 'user'.
+    source: { kind: 'plugin', plugin: 'feynman', form: 'relay' },
+    id: crypto.randomUUID(),
+    role: 'user',
+  }
 }
 
 function logHandler(invocation) {
@@ -311,12 +317,14 @@ export function apply(ctx, config = {}) {
       handler: (inv) => researchHandler(inv, ctx, sessionHandlers),
     }))
     // /review-loop driver: after each completed turn, queue the next round.
+    // Keyed by session id: the registry keys agents by session id, so the
+    // lookup below resolves the same agent that stored the loop at dispatch.
     const offTurn = ctx.on('session/event', (session, event) => {
       if (event?.type !== 'turn/end' || event?.data?.reason?.kind !== 'completed') return
       const agent = service(ctx, 'agents')?.get?.(session.id)
-      if (!agent) return
-      const loop = loops.get(agent.id)
-      if (!loop || loop.round >= loop.rounds) { loops.delete(agent.id); return }
+      if (!agent || agent.session !== session) return
+      const loop = loops.get(session.id)
+      if (!loop || loop.round >= loop.rounds) { loops.delete(session.id); return }
       loop.round += 1
       agent.followup(userMessage({ attachments: [], agent }, loopFollowupPrompt(loop.target, loop.round, loop.rounds - loop.round)))
     })
