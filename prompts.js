@@ -25,7 +25,7 @@ export function parseLoopArgs(rawInput) {
 }
 
 const TOOL_PRELUDE = `You are a research agent. Your retrieval tools are web_search and web_fetch, plus workspace tools (read, grep, glob, bash) for local files, cloned repos, and code. Route each source to its sanctioned API: arXiv papers via the export.arxiv.org API and arxiv.org/abs pages; paper metadata, citations, and references via the OpenAlex API (api.openalex.org); biomedical papers via Europe PMC; datasets, models, and repo files via the Hugging Face Hub API (huggingface.co/api, read-only). For broad multi-angle work, fan out with the subagent tool (one description + prompt per angle) and synthesize the returns; keep narrow explainers lead-owned to avoid needless orchestration.`
-const KEY_PRELUDE = (hfTokenEnv, alphaxivTokenEnv) => `Credentials: the Hugging Face key lives in ${hfTokenEnv} and the AlphaXiv key in ${alphaxivTokenEnv} when set (ask research keys, or the human exports them before launch). Treat an unset key as blocked for the calls that need it — gated Hugging Face datasets read as blocked, and without AlphaXiv fall back to arXiv + OpenAlex. Never bypass paywalls. If a source is unreachable, mark that check blocked in the output — never invent or infer its content.`
+const KEY_PRELUDE = (hfTokenEnv, alphaxivTokenEnv) => `Credentials: the Hugging Face key lives in ${hfTokenEnv} and the AlphaXiv key in ${alphaxivTokenEnv} when set (ask feynman keys, or the human exports them before launch). Treat an unset key as blocked for the calls that need it — gated Hugging Face datasets read as blocked, and without AlphaXiv fall back to arXiv + OpenAlex. Never bypass paywalls. If a source is unreachable, mark that check blocked in the output — never invent or infer its content.`
 
 const DEEPRESEARCH_PROMPT = (topic) => `${TOOL_PRELUDE}
 
@@ -208,7 +208,7 @@ export const WORKFLOWS = {
   },
 }
 
-/** Session/utility subcommands of /research (handlers live in index.js). */
+/** Session/utility subcommands of /feynman (handlers live in index.js). */
 export const SESSION_COMMANDS = {
   log: 'Write a durable session log: completed work, findings, open questions, next steps',
   jobs: 'Inspect background-job state and durable watch/experiment artifacts',

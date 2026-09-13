@@ -1,14 +1,14 @@
-# dsh-researcher
+# dsh-feynman
 
 **Research workflow slash commands for DeepSeek Harness, as one out-of-tree bundle.**
 
-Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (see [attribution](#attribution-and-license)). "What are the current approaches to mechanistic interpretability?" → `/deepresearch`, and a brief with inline citations lands in `outputs/`.
+Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (see [attribution](#attribution-and-license)). "What are the current approaches to mechanistic interpretability?" → `/feynman deepresearch`, and a brief with inline citations lands in `outputs/`.
 
 | Capability | Extension point | Effect |
 |---|---|---|
-| 14 workflow subcommands | one `/research` dispatcher | `deepresearch`, `lit`, `review`, `review-loop`, `audit`, `replicate`, `recipe`, `compare`, `draft`, `autoresearch`, `watch`, `rank`, `paper`, `preview` queue a workflow brief as the agent's next turn. |
-| 11 session subcommands | one `/research` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
-| Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/research review-loop` queues the next fix→re-review round until rounds run out; `/research review-loop stop` ends it early. |
+| 14 workflow subcommands | one `/feynman` dispatcher | `deepresearch`, `lit`, `review`, `review-loop`, `audit`, `replicate`, `recipe`, `compare`, `draft`, `autoresearch`, `watch`, `rank`, `paper`, `preview` queue a workflow brief as the agent's next turn. |
+| 11 session subcommands | one `/feynman` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
+| Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/feynman review-loop` queues the next fix→re-review round until rounds run out; `/feynman review-loop stop` ends it early. |
 | Research Keys card | `settings.plugin.item` slot + `research-keys` settings namespace | A **Research Keys** card in Settings → Plugins → **Plugin configuration** saves the Hugging Face and AlphaXiv keys through the credentials domain — key literals never touch settings. |
 | Key-aware briefs | `buildPrompt()` | Every workflow brief names the live key refs and tells the model to treat unset ones as blocked. |
 
@@ -18,22 +18,22 @@ Each subcommand queues its brief as the agent's next turn; the followup IS the w
 
 | Command | Produces |
 |---|---|
-| `/research deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References |
-| `/research lit <topic-or-lab>` | Literature review: Consensus, Disagreements, Open Questions, Timeline (or lab/PI corpus mode) |
-| `/research review <artifact>` | Severity-graded critique (critical/major/minor/nit) with confidence scores |
-| `/research review-loop <artifact> [rounds]` | Bounded review→fix→re-review loop, default 3 rounds, max 10 |
-| `/research audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers |
-| `/research replicate <paper-or-claim>` | Replication plan; executes only after you pick an environment |
-| `/research recipe <task>` | Ranked implementable ML training recipes with dataset/method/hyperparameter links |
-| `/research compare <topic-or-sources>` | Agreement/disagreement matrix across sources |
-| `/research draft <topic \| --from-session>` | Academic draft with inline citations; unsupported claims become TODOs, never invented |
-| `/research autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark |
-| `/research watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted) |
-| `/research rank <topic>` | Transparent read-first paper ranking with per-paper score math |
-| `/research paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses |
-| `/research preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
+| `/feynman deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References |
+| `/feynman lit <topic-or-lab>` | Literature review: Consensus, Disagreements, Open Questions, Timeline (or lab/PI corpus mode) |
+| `/feynman review <artifact>` | Severity-graded critique (critical/major/minor/nit) with confidence scores |
+| `/feynman review-loop <artifact> [rounds]` | Bounded review→fix→re-review loop, default 3 rounds, max 10 |
+| `/feynman audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers |
+| `/feynman replicate <paper-or-claim>` | Replication plan; executes only after you pick an environment |
+| `/feynman recipe <task>` | Ranked implementable ML training recipes with dataset/method/hyperparameter links |
+| `/feynman compare <topic-or-sources>` | Agreement/disagreement matrix across sources |
+| `/feynman draft <topic \| --from-session>` | Academic draft with inline citations; unsupported claims become TODOs, never invented |
+| `/feynman autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark |
+| `/feynman watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted) |
+| `/feynman rank <topic>` | Transparent read-first paper ranking with per-paper score math |
+| `/feynman paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses |
+| `/feynman preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
 
-Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/research outputs` lists them, `/research log` writes the session log.
+Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/feynman outputs` lists them, `/feynman log` writes the session log.
 
 ## API keys (Hugging Face + AlphaXiv)
 
@@ -41,7 +41,7 @@ Three ways, in precedence order (environment shadows the store):
 
 1. **Config UI** — the Research Keys card: password field per key, set/unset badge, Save, Clear.
 2. **Shell** — `export HF_TOKEN=hf_… ALPHAXIV_API_KEY=…` before launch.
-3. **Command** — `/keys` shows status (values never echoed, input never logged); `/research keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
+3. **Command** — `/keys` shows status (values never echoed, input never logged); `/feynman keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
 
 Row config renames the refs only (defaults `HF_TOKEN` / `ALPHAXIV_API_KEY`); invalid names fail at load.
 
@@ -49,9 +49,9 @@ Row config renames the refs only (defaults `HF_TOKEN` / `ALPHAXIV_API_KEY`); inv
 
 ```sh
 # straight from GitHub
-dsh plugin --profile web add github:maci0/dsh-researcher
+dsh plugin --profile web add github:maci0/dsh-feynman
 # or from a local checkout
-dsh plugin --profile web add /path/to/dsh-researcher
+dsh plugin --profile web add /path/to/dsh-feynman
 ```
 
 That is the whole install. The package declares `dsh.bundle`, so `dsh plugin` adds it to the profile's `dsh.profile.bundles`, and the boot reads the plugin row from this package's own `cordis.patch.yml`. **Restart the profile**: a bundle list is composed at boot, so a running profile does not pick it up from a live patch reload.
@@ -59,17 +59,17 @@ That is the whole install. The package declares `dsh.bundle`, so `dsh plugin` ad
 Local overlay for development (no install; absolute path required):
 
 ```sh
-pnpm dsh web --patch /path/to/dsh-researcher/cordis.local.yml
+pnpm dsh web --patch /path/to/dsh-feynman/cordis.local.yml
 ```
 
 ### Verify
 
 After a restart of the profile and a **page refresh** of the Web client:
 
-- `/research help` lists the 25 subcommands;
-- `/research keys` reports both key states;
+- `/feynman help` lists the 25 subcommands;
+- `/feynman keys` reports both key states;
 - Settings → Plugins → **Plugin configuration** shows the Research Keys card;
-- `/research deepresearch <topic>` queues a brief and writes `outputs/<slug>-brief.md`.
+- `/feynman deepresearch <topic>` queues a brief and writes `outputs/<slug>-brief.md`.
 
 ## Configuration
 
@@ -104,7 +104,7 @@ npm test          # node --test commands.test.js client.test.js (no build step)
 ## Uninstall
 
 ```sh
-dsh plugin --profile web remove dsh-researcher
+dsh plugin --profile web remove dsh-feynman
 ```
 
 then restart the profile. The same reconcile pass that added the package to `dsh.profile.bundles` drops it again, so there is no row left behind.

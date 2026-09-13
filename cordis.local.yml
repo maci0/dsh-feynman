@@ -3,7 +3,7 @@
 # `dsh plugin add`, the installed bundle's own cordis.patch.yml uses the
 # package name instead.
 - insert:
-    - id: researcher
+    - id: feynman
       name: '/home/maci/Desktop/dsh-researcher/index.js'
       config:
         hfTokenEnv: HF_TOKEN

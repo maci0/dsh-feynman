@@ -64,7 +64,7 @@ test('settings namespace serves row config as base', () => {
   assert.ok(captured.json && typeof captured.json === 'object', 'schema serializes for describe()')
   assert.equal(typeof hooks.setSource, 'function')
 })
-test('one /research dispatcher covers every subcommand', async () => {
+test('one /feynman dispatcher covers every subcommand', async () => {
   const registered = []
   const followups = []
   const agent = { id: 'test-agent', followup: (m) => followups.push(m), inject: () => {} }
@@ -75,10 +75,10 @@ test('one /research dispatcher covers every subcommand', async () => {
     get: () => undefined,
   }, {})
   assert.equal(registered.length, 1)
-  const research = registered[0]
-  assert.equal(research.name, 'research')
-  assert.equal(research.recordInput, false)
-  const run = (rawInput) => research.handler({ rawInput, agent, attachments: [] })
+  const feynman = registered[0]
+  assert.equal(feynman.name, 'feynman')
+  assert.equal(feynman.recordInput, false)
+  const run = (rawInput) => feynman.handler({ rawInput, agent, attachments: [] })
   for (const sub of [...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)]) {
     const result = await run(`${sub} sample input`)
     assert.ok(result && (result.kind === 'success' || result.kind === 'error'), `${sub}: bad kind`)
@@ -88,6 +88,6 @@ test('one /research dispatcher covers every subcommand', async () => {
   const unknown = await run('frobnicate x')
   assert.equal(unknown.kind, 'error')
   const bare = await run('')
-  assert.equal(bare.kind, 'success', 'bare /research shows help')
+  assert.equal(bare.kind, 'success', 'bare /feynman shows help')
   assert.ok(followups.length > 0, 'workflow handlers queue model turns')
 })

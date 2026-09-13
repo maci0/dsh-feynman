@@ -7,12 +7,12 @@
  * plus 11 session/utility commands (log, jobs, help, feynman-model, init,
  * outputs, btw, thinking, search, web-results, keys).
  *
- * Load via `--patch cordis.patch.yml` or `dsh plugin add ./dsh-researcher`.
+ * Load via `--patch cordis.patch.yml` or `dsh plugin add ./dsh-feynman`.
  */
 import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, loopFollowupPrompt, slugify } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
 
-export const name = 'researcher'
+export const name = 'feynman'
 // Only commands is required; every other seam is read through service(),
 // which returns undefined when absent, so the bundle loads on minimal profiles.
 export const inject = ['commands']
@@ -51,7 +51,7 @@ function normalizeConfig(config) {
   }
   for (const [field, value] of Object.entries(refs)) {
     if (typeof value !== 'string' || !REF_PATTERN.test(value)) {
-      throw new Error(`[researcher] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
+      throw new Error(`[feynman] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
     }
   }
   return refs
@@ -108,17 +108,17 @@ async function keysHandler(invocation, ctx) {
         `AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
         `Config card: ${cardState(ctx)}`,
         '',
-        `Usage: /research keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
+        `Usage: /feynman keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
         `Or export ${refs.hfTokenEnv} / ${refs.alphaxivTokenEnv} before launch; env shadows the store.`,
       ].join('\n'),
     }
   }
   if (args.length < 3 || args[0].toLowerCase() !== 'set') {
-    return { kind: 'error', text: 'Usage: /research keys | /research keys set <hf|alphaxiv> <value>' }
+    return { kind: 'error', text: 'Usage: /feynman keys | /feynman keys set <hf|alphaxiv> <value>' }
   }
   const which = args[1].toLowerCase()
   const ref = which === 'hf' ? refs.hfTokenEnv : which === 'alphaxiv' ? refs.alphaxivTokenEnv : undefined
-  if (ref === undefined) return { kind: 'error', text: 'Usage: /research keys set <hf|alphaxiv> <value>' }
+  if (ref === undefined) return { kind: 'error', text: 'Usage: /feynman keys set <hf|alphaxiv> <value>' }
   const value = args.slice(2).join(' ')
   if (creds?.set === undefined) {
     return { kind: 'error', text: `Credentials store is not mounted; export ${ref}=… before launch instead.` }
@@ -136,15 +136,15 @@ function err(text) { return { kind: 'error', text } }
 /** Usage line for one subcommand. */
 function subUsage(sub) {
   const workflow = WORKFLOWS[sub]
-  if (workflow) return `Usage: /research ${sub} ${workflow.hint}`
-  if (sub === 'btw') return 'Usage: /research btw <question>'
-  if (sub === 'search') return 'Usage: /research search <query>'
-  if (sub === 'keys') return 'Usage: /research keys | /research keys set <hf|alphaxiv> <value>'
-  return `Usage: /research <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}>`
+  if (workflow) return `Usage: /feynman ${sub} ${workflow.hint}`
+  if (sub === 'btw') return 'Usage: /feynman btw <question>'
+  if (sub === 'search') return 'Usage: /feynman search <query>'
+  if (sub === 'keys') return 'Usage: /feynman keys | /feynman keys set <hf|alphaxiv> <value>'
+  return `Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}>`
 }
 
 /**
- * Single dispatcher behind `/research`. The first token names a workflow or
+ * Single dispatcher behind `/feynman`. The first token names a workflow or
  * session subcommand; the rest is that subcommand's raw input. Attachments
  * ride along on the sub-invocation.
  */
@@ -161,7 +161,7 @@ function researchHandler(invocation, ctx, sessionHandlers) {
 
 function workflowHandler(kind) {
   const spec = WORKFLOWS[kind]
-  const usage = `Usage: /research ${kind} ${spec.hint}`
+  const usage = `Usage: /feynman ${kind} ${spec.hint}`
   return (invocation) => {
     const args = invocation.rawInput.trim()
     if (spec.required && !args) return err(usage)
@@ -177,7 +177,7 @@ function workflowHandler(kind) {
       : buildPrompt(kind, args, liveRefs())
     if (body === null) return err(usage)
     invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
-    return { kind: 'success', text: `/research ${kind} workflow started. Output lands in outputs/.` }
+    return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
   }
 }
 
@@ -213,11 +213,11 @@ function jobsHandler(invocation, ctx) {
 }
 
 function helpHandler() {
-  const lines = ['Research workflows (`/research <subcommand>`):']
+  const lines = ['Research workflows (`/feynman <subcommand>`):']
   for (const n of Object.keys(WORKFLOWS)) lines.push(`  ${n} ${WORKFLOWS[n].hint} — ${WORKFLOWS[n].description}`)
-  lines.push('Session (`/research <subcommand>`):')
+  lines.push('Session (`/feynman <subcommand>`):')
   for (const n of Object.keys(SESSION_COMMANDS)) lines.push(`  ${n} — ${SESSION_COMMANDS[n]}`)
-  lines.push('', 'Tip: /research review-loop <artifact> [rounds] iterates review→fix→re-review; /research review-loop stop ends it.')
+  lines.push('', 'Tip: /feynman review-loop <artifact> [rounds] iterates review→fix→re-review; /feynman review-loop stop ends it.')
   return { kind: 'success', text: lines.join('\n') }
 }
 
@@ -242,7 +242,7 @@ function outputsHandler(invocation) {
 
 function btwHandler(invocation) {
   const q = invocation.rawInput.trim()
-  if (!q) return err('Usage: /research btw <question>')
+  if (!q) return err('Usage: /feynman btw <question>')
   // Non-waking context: visible at the next step boundary without hijacking the running turn.
   invocation.agent.inject(userMessage(invocation, `Side question (answer when convenient, main task first): ${q}`))
   return { kind: 'success', text: 'Side question noted as context; the main turn continues undisturbed.' }
@@ -258,7 +258,7 @@ function thinkingHandler(invocation) {
 
 function searchHandler(invocation, ctx) {
   const q = invocation.rawInput.trim()
-  if (!q) return err('Usage: /research search <query>')
+  if (!q) return err('Usage: /feynman search <query>')
   if (typeof service(ctx, 'sessionQuery')?.searchSessions === 'function') {
     return {
       kind: 'success',
@@ -300,11 +300,11 @@ export function apply(ctx, config = {}) {
       }),
       keys: keysHandler,
     }
-    // One top-level name; everything else rides `research <subcommand>`.
+    // One top-level name; everything else rides `feynman <subcommand>`.
     // Bare generic names (log, jobs, help, …) belong to the host or the user.
     disposers.push(ctx.commands.register({
-      definitionId: 'dsh-researcher:research',
-      name: 'research',
+      definitionId: 'dsh-feynman:feynman',
+      name: 'feynman',
       description: 'Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys)',
       input: { hint: '<workflow | subcommand> [args]', attachments: true },
       recordInput: false,

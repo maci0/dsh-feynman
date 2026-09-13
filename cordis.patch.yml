@@ -1,6 +1,6 @@
 - insert:
-    - id: researcher
-      name: dsh-researcher
+    - id: feynman
+      name: dsh-feynman
       # Optional: rename the env refs the prompts point at. Defaults shown.
       # Secrets themselves are never config — export them or use /keys set.
       config:
