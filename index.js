@@ -157,10 +157,9 @@ function userMessage(invocation, text) {
 }
 
 function logHandler(invocation) {
-  const agent = invocation.agent
-  agent.followup(userMessage(invocation,
-    `Write a durable session log for this session: completed work, findings, open questions, and next steps.${invocation.rawInput.trim() ? ` Focus: ${invocation.rawInput.trim()}` : ''}`))
-  return { kind: 'success', text: 'Session-log request queued as the next turn.' }
+  return followupHandler(invocation,
+    'Write a durable session log for this session: completed work, findings, open questions, and next steps.',
+    'Session-log request queued as the next turn.')
 }
 
 function jobsHandler(invocation, ctx) {
@@ -184,26 +183,23 @@ function helpHandler() {
   return { kind: 'success', text: lines.join('\n') }
 }
 
-/** Static replies: no model turn needed. */
-const STATIC_TEXT = {
-  'feynman-model': 'This profile runs one model route (see the agent-default-model row in the composed config). To change it, edit the profile patch or settings; per-turn model overrides are not supported here.',
-  'web-results': 'Stored web results live in this session log (web_search/web_fetch tool calls). Ask me to summarize the sources fetched so far and I will reconstruct them from history.',
-}
-
-function staticHandler(text) {
-  return () => ({ kind: 'success', text })
+/** Queue a model turn from a prompt template; the Focus suffix is shared. */
+function followupHandler(invocation, prompt, ack) {
+  const focus = invocation.rawInput.trim()
+  invocation.agent.followup(userMessage(invocation, focus ? `${prompt} Focus: ${focus}` : prompt))
+  return { kind: 'success', text: ack }
 }
 
 function initHandler(invocation) {
-  invocation.agent.followup(userMessage(invocation,
-    `Bootstrap check for a research project: ensure AGENTS.md exists and outputs/.plans/ plus outputs/.drafts/ directories exist in the workspace, creating what is missing (ask before overwriting an existing AGENTS.md).${invocation.rawInput.trim() ? ` Focus: ${invocation.rawInput.trim()}` : ''} Report what was created vs already present.`))
-  return { kind: 'success', text: 'Project bootstrap queued as the next turn.' }
+  return followupHandler(invocation,
+    'Bootstrap check for a research project: ensure AGENTS.md exists and outputs/.plans/ plus outputs/.drafts/ directories exist in the workspace, creating what is missing (ask before overwriting an existing AGENTS.md). Report what was created vs already present.',
+    'Project bootstrap queued as the next turn.')
 }
 
 function outputsHandler(invocation) {
-  invocation.agent.followup(userMessage(invocation,
-    'List the research artifacts under outputs/ (group by workflow: *-brief.md deepresearch, *-lit-review.md lit, *-review.md review, *-audit.md audit, *-replication-plan.md replicate, *-recipe.md recipe, *-compare.md compare, *-draft.md draft, *-paper-rank.md rank, *-baseline.md watch). Summarize what each contains in one line.'))
-  return { kind: 'success', text: 'Artifact listing queued as the next turn.' }
+  return followupHandler(invocation,
+    'List the research artifacts under outputs/ (group by workflow: *-brief.md deepresearch, *-lit-review.md lit, *-review.md review, *-audit.md audit, *-replication-plan.md replicate, *-recipe.md recipe, *-compare.md compare, *-draft.md draft, *-paper-rank.md rank, *-baseline.md watch). Summarize what each contains in one line.',
+    'Artifact listing queued as the next turn.')
 }
 
 function btwHandler(invocation) {
@@ -238,10 +234,6 @@ function searchHandler(invocation, ctx) {
   }
 }
 
-function webResultsHandler() {
-  return { kind: 'success', text: STATIC_TEXT['web-results'] }
-}
-
 export function apply(ctx, config = {}) {
   keyRefs = normalizeConfig(config)
 
@@ -268,9 +260,17 @@ export function apply(ctx, config = {}) {
     }
     const sessionHandlers = {
       log: logHandler, jobs: jobsHandler, help: helpHandler,
-      'feynman-model': staticHandler(STATIC_TEXT['feynman-model']),
+      'feynman-model': () => ({
+        kind: 'success',
+        text: 'This profile runs one model route (see the agent-default-model row in the composed config). To change it, edit the profile patch or settings; per-turn model overrides are not supported here.',
+      }),
       init: initHandler, outputs: outputsHandler, btw: btwHandler, thinking: thinkingHandler,
-      search: searchHandler, 'web-results': webResultsHandler, keys: keysHandler,
+      search: searchHandler,
+      'web-results': () => ({
+        kind: 'success',
+        text: 'Stored web results live in this session log (web_search/web_fetch tool calls). Ask me to summarize the sources fetched so far and I will reconstruct them from history.',
+      }),
+      keys: keysHandler,
     }
     for (const [cmd, desc] of Object.entries(SESSION_COMMANDS)) {
       const handler = sessionHandlers[cmd]

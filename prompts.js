@@ -15,14 +15,12 @@ export function slugify(text) {
 
 /** Split `/review-loop <target> [rounds]` trailing round count. */
 export function parseLoopArgs(rawInput) {
-  const input = rawInput.trim()
-  if (!input) return { target: '', rounds: 3 }
-  const parts = input.split(/\s+/)
-  const last = parts[parts.length - 1]
-  const n = Number(last)
-  if (parts.length > 1 && Number.isInteger(n) && n >= 1 && n <= 10) {
-    return { target: parts.slice(0, -1).join(' '), rounds: n }
+  const match = /^(.*?)\s+(\d+)$/.exec(rawInput.trim())
+  if (match) {
+    const rounds = Number(match[2])
+    if (rounds >= 1 && rounds <= 10) return { target: match[1], rounds }
   }
+  const input = rawInput.trim()
   return { target: input, rounds: 3 }
 }
 
