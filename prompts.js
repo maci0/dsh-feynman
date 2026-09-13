@@ -24,35 +24,35 @@ export function parseLoopArgs(rawInput) {
   return { target: input, rounds: 3 }
 }
 
-const TOOL_PRELUDE = `You are a research agent. Your retrieval tools are web_search and web_fetch, plus workspace tools (read, grep, glob, bash) for local files, cloned repos, and code. Route each source to its sanctioned API: arXiv papers via the export.arxiv.org API and arxiv.org/abs pages; paper metadata, citations, and references via the OpenAlex API (api.openalex.org); biomedical papers via Europe PMC; datasets, models, and repo files via the Hugging Face Hub API (huggingface.co/api, read-only). For broad multi-angle work, fan out with the subagent tool (one description + prompt per angle) and synthesize the returns; keep narrow explainers lead-owned to avoid needless orchestration.`
-const KEY_PRELUDE = (hfTokenEnv, alphaxivTokenEnv) => `Credentials: the Hugging Face key lives in ${hfTokenEnv} and the AlphaXiv key in ${alphaxivTokenEnv} when set (ask feynman keys, or the human exports them before launch). Treat an unset key as blocked for the calls that need it — gated Hugging Face datasets read as blocked, and without AlphaXiv fall back to arXiv + OpenAlex. Never bypass paywalls. If a source is unreachable, mark that check blocked in the output — never invent or infer its content.`
+const TOOL_PRELUDE = `You are a research agent. Your retrieval tools are web_search and web_fetch, plus workspace tools (read, grep, glob, bash) for local files, cloned repos, and code. Route each source to its sanctioned API: arXiv papers via the export.arxiv.org API and arxiv.org/abs pages; paper metadata, citations, and references via the OpenAlex API (api.openalex.org); biomedical papers via Europe PMC; datasets, models, and repo files via the Hugging Face Hub API (huggingface.co/api, read-only). Delegate by role when it helps: researcher (deepresearch, lit, review, audit, replicate, recipe, compare, draft) gathers, reviewer (review, audit, compare) runs the adversarial pass, writer (deepresearch, lit, draft, compare) produces the final document, verifier (deepresearch, audit, replicate, recipe) fact-checks. For broad multi-angle work, fan out with the subagent tool (one description + prompt per angle) and synthesize the returns; keep narrow explainers lead-owned to avoid needless orchestration.`
+const KEY_PRELUDE = (hfTokenEnv, alphaxivTokenEnv) => `Credentials: the Hugging Face key lives in ${hfTokenEnv} (HUGGINGFACE_HUB_TOKEN accepted as fallback; send whichever is present) and the AlphaXiv key in ${alphaxivTokenEnv} when set (ask feynman keys, or the human exports them before launch). Spend the AlphaXiv key via web_fetch against the AlphaXiv API (alphaxiv.org Honk with Authorization bearer): paper search, paper content and section extraction (alpha_get_paper section/sections: abstract, introduction, methodology, experiments, results, discussion, limitations, conclusion), paper Q&A, linked-repo code inspection, annotations; without it fall back to arXiv + OpenAlex and mark citation-metadata/discussion-thread/source-text checks blocked. Treat an unset key as blocked for the calls that need it — gated Hugging Face datasets read as blocked. Never bypass paywalls. If a source is unreachable, mark that check blocked in the output — never invent or infer its content.`
 
 const DEEPRESEARCH_PROMPT = (topic) => `${TOOL_PRELUDE}
 
 Workflow: deep research on "${topic}".
-1. Write a plan to outputs/.plans/${slugify(topic)}.md (key questions, source strategy, scale decision, task ledger) and continue into execution without waiting for confirmation.
+1. Write a plan to outputs/.plans/${slugify(topic)}.md (key questions, source strategy, scale decision, task ledger, verification log), summarize it, and WAIT for the human to confirm or request changes before executing.
 2. Gather: diversified queries across papers, web sources, docs, and code. Prefer metadata/abstracts/HTML/official docs over PDF extraction.
 3. Extract claims, methods, results, limitations per source, tagged with source locations.
-4. Synthesize into a research brief at outputs/${slugify(topic)}-brief.md with inline citations: Summary, Background, Key Findings (by theme), Open Questions, References.
+4. Synthesize into a research brief at outputs/${slugify(topic)}-brief.md with inline citations: Summary, Background, Key Findings (by theme), Open Questions, References. Record source accounting, formula, and verification caveats in outputs/${slugify(topic)}-brief.provenance.md.
 5. Verify claims against cited sources; flag misattributions or unsupported assertions. Record verification caveats in the brief.`
 
 const LIT_PROMPT = (topic) => `${TOOL_PRELUDE}
 
-Workflow: structured literature review on "${topic}". If the input names a lab, PI, author, or lab website, switch to publication-corpus mode (resolve identity, log reachable publications, map topic trajectories, rank 3-5 papers by contrastive originality).
+Workflow: structured literature review on "${topic}". If the input names a lab, PI, author, or lab website, switch to publication-corpus mode (resolve identity, write a reachable-publication log first, map topic trajectories, rank 3-5 papers by contrastive originality, methodology strength, and relationship to prior art).
 1. Search broadly (surveys, foundational work, recent frontier). Note search terms, time window, source types.
 2. Extract claims, results, methodology per paper.
-3. Write outputs/${slugify(topic)}-lit-review.md: Scope and Methodology, Consensus (with citations), Disagreements, Open Questions, Timeline, References. For biomedical topics, group evidence by study design (guidelines, systematic reviews, RCTs, cohorts, case reports, preprints, mechanistic), report effect sizes only when source-backed, and state that the output is research synthesis, not medical advice.`
+3. Write outputs/${slugify(topic)}-lit-review.md: Scope and Methodology, Consensus (with citations), Disagreements, Open Questions, Timeline, References. For biomedical topics, frame the question as PICO/PICOS (population, intervention/exposure, comparator, outcomes, study design) or state the study type directly; group evidence by study design (guidelines, systematic reviews, RCTs, cohorts, case reports, preprints, mechanistic), report effect sizes only when source-backed; never ask for or paste protected health information — use de-identified or fictionalized questions; state that the output is research synthesis, not medical advice.`
 
 const REVIEW_PROMPT = (artifact) => `${TOOL_PRELUDE}
 
 Workflow: internal research review of "${artifact}" (arXiv ID, URL, or local file; fetch or read it first). This is a pre-trust critique, not a publication decision.
-1. Record evidence notes as you go.
+1. Record evidence notes in outputs/.drafts/${slugify(artifact)}-review-evidence.md as you go.
 2. Evaluate: claims vs evidence, methodology soundness and confounds, experimental design (baselines, ablations), reproducibility, writing clarity, completeness (limitations, related work).
 3. Write exactly one final review to outputs/${slugify(artifact)}-review.md with severity-graded findings — critical (undermines validity), major (should fix), minor (suggestion), nit (style) — each with a confidence score: Summary Assessment (revision priority), Strengths, Critical Issues, Major Issues, Minor Issues, Inline Annotations tied to document sections. Flag unverifiable claims as needing evidence. If the artifact cannot be parsed, still write the review and mark affected checks blocked.`
 
 const AUDIT_PROMPT = (item) => `${TOOL_PRELUDE}
 
-Workflow: code audit of "${item}" (arXiv ID or repo URL plus --paper ID; when given only an arXiv ID, find the repo through links on the arxiv.org/abs page).
+Workflow: code audit of "${item}" (arXiv ID or repo URL plus --paper ID; when given only an arXiv ID, find the repo through paper links, Papers With Code, or GitHub search).
 Pass 1 (researcher): extract concrete claims from the paper — hyperparameters, architecture, training procedure, dataset splits, metrics, reported results — each tagged with its paper location.
 Pass 2 (verifier): find each claim's implementation (configs, training scripts, model definitions, eval code). Document mismatches with paper location plus exact file paths and line numbers; list claims with no corresponding code.
 Also flag reproducibility risks: missing seeds, unpinned deps, hardcoded paths, missing environment specs.
@@ -63,14 +63,15 @@ const REPLICATE_PROMPT = (target) => `${TOOL_PRELUDE}
 Workflow: replication plan for "${target}" (paper or specific claim). Plan only: do NOT execute anything until the user chooses an environment (local, container, cloud, or plan-only).
 1. Extract stated details: architecture, hyperparameters, schedule, data prep, eval protocol, hardware. Cross-reference linked/supplied code.
 2. For ML-heavy targets add a recipe pass linking each claimed result to dataset, method, hyperparameters, compute, metric, and code path (verify Hugging Face dataset schema/splits via the huggingface.co/api dataset endpoints when relevant).
-3. Write outputs/${slugify(target)}-replication-plan.md: Requirements (hardware/software/data/compute estimate), Recipe Extraction, Step-by-step Plan, Underspecified Details (gap + assumption + divergence risk each), Risk Assessment, Success Criteria (what counts as replicated).`
+3. Write outputs/${slugify(target)}-replication-plan.md: Requirements (hardware/software/data/compute estimate), Recipe Extraction, Step-by-step Plan, Underspecified Details (gap + assumption + divergence risk each), Risk Assessment, Success Criteria (what counts as replicated). Label a result replicated only when the planned checks actually pass.`
 
 const RECIPE_PROMPT = (task) => `${TOOL_PRELUDE}
 
 Workflow: ML training recipe for "${task}".
+0. Write a plan to outputs/.plans/${slugify(task)}-recipe.md, then continue automatically.
 1. Gather candidates from papers, docs, repos, and Hugging Face Hub metadata (dataset features/splits, repo files, configs — read-only via the huggingface.co/api endpoints; HF_TOKEN may be present for gated resources).
 2. Link each reported result to the recipe that produced it: dataset (+split/schema), method, hyperparameters, compute, benchmark, code path, verification status. A paper without usable data/code/config detail is a risk, not a runnable recipe. Label checks verified / unverified / blocked / inferred; never call a recipe state-of-the-art, replicated, or production-ready without supporting checks.
-3. Write outputs/${slugify(task)}-recipe.md: Recommendation (one recipe first + why), Ranked Recipe Table, Dataset Notes, Implementation Plan (minimal steps), Known Gaps, Sources (every URL).`
+3. Write outputs/${slugify(task)}-recipe.md: Recommendation (one recipe first + why), Ranked Recipe Table, Dataset Notes, Implementation Plan (minimal steps), Known Gaps, Sources (every URL); plus outputs/${slugify(task)}-recipe.provenance.md with source accounting and verification caveats.`
 
 const COMPARE_PROMPT = (input) => `${TOOL_PRELUDE}
 
@@ -88,7 +89,7 @@ const AUTORESEARCH_PROMPT = (idea) => `${TOOL_PRELUDE}
 
 Workflow: bounded autoresearch experiment loop for "${idea}".
 1. Confirm with the user first if any of these are missing: benchmark, metric, environment, files in scope, iteration limit.
-2. Loop: Hypothesis → Experiment → Analysis → Decision (keep / vary / pivot). Log every iteration (params, results) to autoresearch.md + autoresearch.jsonl in the workspace; never repeat a failed approach.
+2. Loop: Hypothesis → Experiment → Analysis → Decision (keep / vary / pivot). Log every iteration (params, results) to autoresearch.md + autoresearch.jsonl in the workspace; record milestones in CHANGELOG.md; never repeat a failed approach.
 3. Report: Experiment History, Best Configuration, Ablation Results, Recommendations. This is for hypothesis/benchmark-driven search (prompts, hyperparams, retrieval, architectures), not open-ended Q&A.`
 
 const WATCH_PROMPT = (topic) => `${TOOL_PRELUDE}
@@ -96,19 +97,37 @@ const WATCH_PROMPT = (topic) => `${TOOL_PRELUDE}
 Workflow: research watch on "${topic}".
 1. Write the watch plan (topic, monitored signals, meaningful-change criteria, check frequency) to outputs/.plans/${slugify(topic)}-watch.md.
 2. Run a baseline sweep (papers, articles, docs, releases, code) and save outputs/${slugify(topic)}-baseline.md: New Papers, New Articles, Relevance Notes.
-3. Schedule follow-ups ONLY with the schedule_create tool when it is visible in this session; otherwise mark scheduling blocked and include the exact refresh prompt to run later.`
+3. Schedule follow-ups ONLY with the schedule_create tool when it is visible in this session; otherwise mark scheduling blocked and include the exact refresh prompt to run later. Each follow-up check compares against the baseline so genuinely new material is separable from old findings.`
 
-const RANK_PROMPT = (topic) => `${TOOL_PRELUDE}
+/** Split `/rank <topic> [--limit N]` trailing flags. Unsupported PaperRank flags are rejected, never absorbed. */
+export function parseRankArgs(rawInput) {
+  const parts = rawInput.trim().split(/\s+/).filter(Boolean)
+  const out = { topic: '', limit: 20, unsupported: [] }
+  for (let i = 0; i < parts.length; i += 1) {
+    const token = parts[i]
+    if (token === '--limit' && /^\d+$/.test(parts[i + 1] ?? '')) {
+      out.limit = Math.min(Math.max(Number(parts[i + 1]), 1), 100)
+      i += 1
+    } else if (token.startsWith('--')) {
+      out.unsupported.push(token)
+    } else {
+      out.topic += (out.topic ? ' ' : '') + token
+    }
+  }
+  return out
+}
 
-Workflow: read-first paper ranking for "${topic}". Scores are a transparent heuristic computed live in this session, not a fitted model — say so in the output.
-1. Fetch candidates via the OpenAlex API (works, cites, references, abstracts, OA status).
-2. Score each 0-100 on: topical relevance (30%), citation impact (20%), local graph prestige over referenced_works edges (20%, excluded when no local edges exist), citation velocity (10%), methodology screening (10%), reproducibility screening (10%).
-3. Write outputs/${slugify(topic)}-paper-rank.md (ranked brief with per-paper score math and evidence spans) plus a sensitivity note (which papers are stable vs volatile under alternate weightings). Keep bibliometric influence separate from quality judgments; record unverified checks as gaps, not scores.`
+const RANK_PROMPT = ({ topic, limit }) => `${TOOL_PRELUDE}
+
+Workflow: read-first paper ranking for "${topic}" (top ${limit} candidates). Scores are a transparent heuristic computed live in this session, not a fitted model — say so in the output.
+1. Fetch candidates via the OpenAlex API (works, cites, references, abstracts, OA status). Without --preference-file, default weights are a transparent product hypothesis, not fitted preferences — say so in the brief and provenance.
+2. Score each 0-100 on: topical relevance (30%), citation impact (20%), local graph prestige over referenced_works edges (20%, excluded when no local edges exist), citation velocity (10%), methodology screening (10%), reproducibility screening (10%). Keep rubric answers present / partial / missing / not_evaluated for limitations, reproducibility path, experimental details, statistical significance, and compute resources, with source spans (source, field, marker, offsets, section) showing why attention routed to each paper.
+3. Write outputs/${slugify(topic)}-paper-rank.md (ranked brief with per-paper score math and evidence spans), outputs/${slugify(topic)}-rank-sensitivity.md (stable vs volatile under balanced, influence-heavy, method/reproducibility-heavy, frontier-heavy, and topic-heavy weightings), and outputs/${slugify(topic)}-rank.provenance.md (source accounting, formula, verification caveats). Keep bibliometric influence separate from quality judgments; record unverified checks as gaps, not scores. Without completed reproduction notes, record that none were supplied.`
 
 const PAPER_PROMPT = (id) => `${TOOL_PRELUDE}
 
 Workflow: paper access resolution for "${id}" (DOI, PubMed ID, arXiv ID, or title).
-Resolve access candidates via OpenAlex, DOI, PubMed/PMCID, arXiv, and Europe PMC; for a title, search OpenAlex first. Report candidates without bypassing paywalls. With --fetch-full-text, fetch text only through source-sanctioned APIs and write bounded artifacts (summary + access record), never raw full-text dumps.`
+Resolve access candidates via OpenAlex, DOI, PubMed/PMCID, arXiv, and Europe PMC; for a title, search OpenAlex first. Report candidates without bypassing paywalls. With --fetch-full-text, fetch text only through source-sanctioned APIs and write bounded artifacts (summary + access record), never raw full-text dumps. Write outputs/${slugify(id)}-paper-access.md and outputs/${slugify(id)}-paper-access.json.`
 
 const PREVIEW_PROMPT = (target) => `${TOOL_PRELUDE}
 
@@ -190,7 +209,7 @@ export const WORKFLOWS = {
   },
   rank: {
     description: 'Rank papers read-first with transparent relevance/citation/method scoring',
-    hint: '<topic>',
+    hint: '<topic> [--limit N]',
     required: true,
     prompt: RANK_PROMPT,
   },

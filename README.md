@@ -18,19 +18,19 @@ Each subcommand queues its brief as the agent's next turn; the followup IS the w
 
 | Command | Produces |
 |---|---|
-| `/feynman deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References |
-| `/feynman lit <topic-or-lab>` | Literature review: Consensus, Disagreements, Open Questions, Timeline (or lab/PI corpus mode) |
-| `/feynman review <artifact>` | Severity-graded critique (critical/major/minor/nit) with confidence scores |
-| `/feynman review-loop <artifact> [rounds]` | Bounded review→fix→re-review loop, default 3 rounds, max 10 |
-| `/feynman audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers |
-| `/feynman replicate <paper-or-claim>` | Replication plan; executes only after you pick an environment |
-| `/feynman recipe <task>` | Ranked implementable ML training recipes with dataset/method/hyperparameter links |
+| `/feynman deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References (+ provenance sidecar). Plan is summarized and confirmed before execution |
+| `/feynman lit <topic-or-lab>` | Literature review: Consensus, Disagreements, Open Questions, Timeline (or lab/PI corpus mode with reachable-publication log) |
+| `/feynman review <artifact>` | Severity-graded critique (critical/major/minor/nit) with confidence scores; evidence notes under `outputs/.drafts/` |
+| `/feynman review-loop <artifact> [rounds]` | Bounded review→fix→re-review loop, default 3 rounds, max 10 (a DSH-native extension — no upstream equivalent) |
+| `/feynman audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers (repo found via paper links, Papers With Code, GitHub search) |
+| `/feynman replicate <paper-or-claim>` | Replication plan; executes only after you pick an environment; a result is `replicated` only when the planned checks pass |
+| `/feynman recipe <task>` | Ranked implementable ML training recipes with dataset/method/hyperparameter links (+ provenance sidecar) |
 | `/feynman compare <topic-or-sources>` | Agreement/disagreement matrix across sources |
 | `/feynman draft <topic \| --from-session>` | Academic draft with inline citations; unsupported claims become TODOs, never invented |
-| `/feynman autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark |
-| `/feynman watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted) |
-| `/feynman rank <topic>` | Transparent read-first paper ranking with per-paper score math |
-| `/feynman paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses |
+| `/feynman autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark (log + JSONL + CHANGELOG milestones) |
+| `/feynman watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted); each check compares against the baseline |
+| `/feynman rank <topic> [--limit N]` | Transparent read-first paper ranking with per-paper score math (+ sensitivity note + provenance). `--limit` only — `--expand-citations`, `--full-text-top`, `--critique-top`, `--preference-file`, `--reproduction-notes`, `--synthesize` are rejected, not absorbed (see Limits) |
+| `/feynman paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses; writes `<slug>-paper-access.md` + `.json` |
 | `/feynman preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
 
 Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/feynman outputs` lists them, `/feynman log` writes the session log.
@@ -41,9 +41,11 @@ Three ways, in precedence order (environment shadows the store):
 
 1. **Config UI** — the Research Keys card: password field per key, set/unset badge, Save, Clear.
 2. **Shell** — `export HF_TOKEN=hf_… ALPHAXIV_API_KEY=…` before launch.
-3. **Command** — `/keys` shows status (values never echoed, input never logged); `/feynman keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
+3. **Command** — `/feynman keys` shows status (values never echoed, input never logged); `/feynman keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
 
-Row config renames the refs only (defaults `HF_TOKEN` / `ALPHAXIV_API_KEY`); invalid names fail at load.
+Row config renames the refs only (defaults `HF_TOKEN` / `ALPHAXIV_API_KEY`); `HUGGINGFACE_HUB_TOKEN` works too — point the ref at it via row config. Invalid names fail at load.
+
+The AlphaXiv key is spent via `web_fetch` against the AlphaXiv API (paper search, section-filtered content, Q&A, linked-repo code, annotations); without it the briefs fall back to arXiv + OpenAlex and mark citation-metadata/discussion checks blocked.
 
 ## Install
 
@@ -114,7 +116,7 @@ then restart the profile. The same reconcile pass that added the package to `dsh
 - **A plugin source edit needs a profile restart.** The Loader imports plugin modules with ESM semantics, so a live patch reload re-runs `apply` from the module already in memory.
 - **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package, so the host half can stay up.
 - **Review-loop state is process-local.** Loop rounds live in a module-level map keyed by session id; a profile restart forgets them. Durable loop state arrives when it needs to survive restarts.
-- **Ranking is a live heuristic.** `/rank` scores are computed transparently in-session and say so in the output; they are not a fitted model or a deterministic scorer.
+- **Ranking is a live heuristic.** `/rank` scores are computed transparently in-session and say so in the output; they are not a fitted model or a deterministic scorer. Only `--limit` is supported; the remaining PaperRank flags (`--expand-citations`, `--full-text-top`, `--critique-top`, `--preference-file`, `--reproduction-notes`, `--synthesize`) and their JSONL/graph-explorer/calibration artifacts are not ported — the handler rejects them instead of absorbing them into the topic.
 - **One locale.** The card ships English copy; other active locales fall back to it.
 - **No paywall bypasses, ever.** Unreachable sources are marked blocked, never inferred.
 

@@ -1,15 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slugify, parseLoopArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
+import { slugify, parseLoopArgs, parseRankArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
 import { apply } from './index.js'
 
 // Every Feynman workflow slash command is mapped.
 test('all Feynman workflow commands mapped', () => {
-  for (const cmd of ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'rank', 'paper', 'preview']) {
+  for (const cmd of ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'paper', 'preview']) {
     assert.ok(WORKFLOWS[cmd], `missing /${cmd}`)
     assert.ok(WORKFLOWS[cmd].prompt('x').length > 100, `/${cmd} prompt is a stub`)
   }
   assert.ok(WORKFLOWS['review-loop'], 'missing /review-loop')
+  assert.ok(WORKFLOWS.rank.prompt({ topic: 'x', limit: 20 }).length > 100, 'rank prompt is a stub')
 })
 
 // Every Feynman session/utility command is mapped.
@@ -23,8 +24,9 @@ test('all session commands mapped', () => {
 // The composed brief carries live key refs and still assumes nothing else.
 test('composed brief names key refs, nothing external', () => {
   for (const [cmd, spec] of Object.entries(WORKFLOWS)) {
-    const p = spec.prompt('sample input').toLowerCase()
-    for (const term of ['feynman', 'sota', 'pmid']) {
+    const arg = cmd === 'rank' ? { topic: 'sample input', limit: 20 } : 'sample input'
+    const p = spec.prompt(arg).toLowerCase()
+    for (const term of ['sota', 'pmid']) {
       assert.ok(!p.includes(term), `/${cmd} prompt references "${term}" the model cannot know`)
     }
     assert.ok(p.includes('web_search') && p.includes('web_fetch'), `/${cmd} prompt names no concrete tools`)
@@ -38,6 +40,12 @@ test('slugify + loop args', () => {
   assert.deepEqual(parseLoopArgs('paper.pdf'), { target: 'paper.pdf', rounds: 3 })
   assert.deepEqual(parseLoopArgs(''), { target: '', rounds: 3 })
   assert.ok(loopFollowupPrompt('p', 2, 1).includes('round 2'))
+})
+test('rank args: --limit parsed, the rest rejected loudly', () => {
+  assert.deepEqual(parseRankArgs('scaling laws --limit 5'), { topic: 'scaling laws', limit: 5, unsupported: [] })
+  assert.deepEqual(parseRankArgs('scaling laws'), { topic: 'scaling laws', limit: 20, unsupported: [] })
+  assert.deepEqual(parseRankArgs('scaling laws --synthesize'), { topic: 'scaling laws', limit: 20, unsupported: ['--synthesize'] })
+  assert.deepEqual(parseRankArgs('scaling laws --limit 200'), { topic: 'scaling laws', limit: 100, unsupported: [] })
 })
 
 // The research-keys namespace registers with row config as its base layer.
@@ -97,4 +105,11 @@ test('one /feynman dispatcher covers every subcommand', async () => {
     assert.equal(m.source.kind, 'plugin')
   }
   assert.equal(new Set(followups.map((m) => m.id)).size, followups.length, 'steering ids collide')
+  // Rank flags: --limit flows through, the rest fail loud instead of joining the topic.
+  const ranked = await run('rank scaling laws --limit 5')
+  assert.equal(ranked.kind, 'success')
+  assert.ok(followups.at(-1).content[0].text.includes('top 5 candidates'), 'limit reaches the brief')
+  const flagged = await run('rank scaling laws --synthesize')
+  assert.equal(flagged.kind, 'error')
+  assert.ok(flagged.text.includes('--synthesize'), 'unsupported flag named')
 })

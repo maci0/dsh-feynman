@@ -9,7 +9,7 @@
  *
  * Load via `--patch cordis.patch.yml` or `dsh plugin add ./dsh-feynman`.
  */
-import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, loopFollowupPrompt, slugify } from './prompts.js'
+import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, loopFollowupPrompt, slugify } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'feynman'
@@ -172,6 +172,18 @@ function workflowHandler(kind) {
       return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
     }
     // Queue the workflow brief as the agent's next turn; the followup IS the work.
+    // Rank parses --limit; other PaperRank flags are rejected, never absorbed into the topic.
+    if (kind === 'rank') {
+      const parsed = parseRankArgs(args)
+      if (!parsed.topic) return err(usage)
+      if (parsed.unsupported.length > 0) {
+        return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. Supported: --limit N. `
+          + `(--expand-citations, --full-text-top, --critique-top, --preference-file, --reproduction-notes, --synthesize are not ported; see README limits.)`)
+      }
+      const body = buildPrompt(kind, parsed, liveRefs())
+      invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
+      return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
+    }
     const body = kind === 'review-loop'
       ? reviewLoopPrompt(invocation, args)
       : buildPrompt(kind, args, liveRefs())
@@ -333,4 +345,4 @@ export function apply(ctx, config = {}) {
 }
 
 // Re-exported for tests.
-export { slugify, parseLoopArgs, loopFollowupPrompt }
+export { slugify, parseLoopArgs, parseRankArgs, loopFollowupPrompt }
