@@ -1,6 +1,6 @@
 {
   "name": "dsh-feynman",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, …) for DeepSeek Harness",
   "type": "module",
   "main": "index.js",
