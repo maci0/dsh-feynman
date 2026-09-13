@@ -118,7 +118,7 @@ async function keysHandler(invocation, ctx) {
   }
   const which = args[1].toLowerCase()
   const ref = which === 'hf' ? refs.hfTokenEnv : which === 'alphaxiv' ? refs.alphaxivTokenEnv : undefined
-  if (ref === undefined) return { kind: 'error', text: 'Usage: /keys set <hf|alphaxiv> <value>' }
+  if (ref === undefined) return { kind: 'error', text: 'Usage: /research keys set <hf|alphaxiv> <value>' }
   const value = args.slice(2).join(' ')
   if (creds?.set === undefined) {
     return { kind: 'error', text: `Credentials store is not mounted; export ${ref}=… before launch instead.` }
@@ -177,7 +177,7 @@ function workflowHandler(kind) {
       : buildPrompt(kind, args, liveRefs())
     if (body === null) return err(usage)
     invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
-    return { kind: 'success', text: `/${kind} workflow started. Output lands in outputs/.` }
+    return { kind: 'success', text: `/research ${kind} workflow started. Output lands in outputs/.` }
   }
 }
 
