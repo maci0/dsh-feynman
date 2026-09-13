@@ -54,6 +54,7 @@ const REVIEW_PROMPT = (rawArtifact) => {
   return `${TOOL_PRELUDE}
 
 Workflow: internal research review of "${artifact}" (arXiv ID, URL, or local file; fetch or read it first). This is a pre-trust critique, not a publication decision.
+0. Write a plan to outputs/.plans/${slugify(artifact)}-review-plan.md, then continue immediately into evidence gathering and the final review without waiting for confirmation.
 1. Record evidence notes in outputs/.drafts/${slugify(artifact)}-review-evidence.md as you go.
 2. Evaluate: claims vs evidence, methodology soundness and confounds, experimental design (baselines, ablations), reproducibility, writing clarity, completeness (limitations, related work).
 3. Write exactly one final review to outputs/${slugify(artifact)}-review.md with severity-graded findings — critical (undermines validity), major (should fix), minor (suggestion), nit (style) — each with a confidence score: Summary Assessment (revision priority), Strengths, Critical Issues, Major Issues, Minor Issues, Inline Annotations tied to document sections. Flag unverifiable claims as needing evidence. If the artifact cannot be parsed, still write the review and mark affected checks blocked.`

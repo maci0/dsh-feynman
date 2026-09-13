@@ -49,6 +49,11 @@ test('arxiv: prefix normalizes to the bare ID everywhere it matters', () => {
   assert.equal(WORKFLOWS.audit.prompt('arxiv:2401.12345'), WORKFLOWS.audit.prompt('2401.12345'))
   assert.equal(WORKFLOWS.paper.prompt({ id: 'arxiv:2401.12345' }), WORKFLOWS.paper.prompt({ id: '2401.12345' }))
 })
+test('review names its plan and evidence artifacts', () => {
+  const brief = WORKFLOWS.review.prompt('2401.12345')
+  assert.ok(brief.includes('outputs/.plans/2401-12345-review-plan.md'), 'review plan path')
+  assert.ok(brief.includes('outputs/.drafts/2401-12345-review-evidence.md'), 'review evidence path')
+})
 test('slugify + loop args', () => {
   assert.equal(slugify('Scaling Laws! 2024'), 'scaling-laws-2024')
   assert.deepEqual(parseLoopArgs('paper.pdf 5'), { target: 'paper.pdf', rounds: 5 })

@@ -304,7 +304,7 @@ function initHandler(invocation) {
 
 function outputsHandler(invocation) {
   return followupHandler(invocation,
-    'List the research artifacts under outputs/ (group by workflow: *-brief.md deepresearch, *-lit-review.md lit, *-review.md review, *-audit.md audit, *-replication-plan.md replicate, *-recipe.md recipe, *-compare.md compare, *-draft.md draft, *-paper-rank.md rank, *-baseline.md watch). Summarize what each contains in one line.',
+    'List the research artifacts under outputs/ (group by workflow: *-brief.md deepresearch, *-lit-review.md lit, *-review.md review, *-audit.md audit, *-replication-plan.md replicate, *-recipe.md recipe, *-compare.md compare, *-draft.md draft, *-paper-rank.md + *-research-run.json + *-papers.jsonl + *-scores.jsonl + *-score-audit.md + *-citation-graph.json + *-graph-explorer.html + *-field-map.json + *-rank-sensitivity.json + *-rank.provenance.md rank, *-paper-access.md + *-paper-access.json paper, *-baseline.md watch). Summarize what each contains in one line.',
     'Artifact listing queued as the next turn.')
 }
 
