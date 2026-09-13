@@ -64,7 +64,7 @@ test('settings namespace serves row config as base', () => {
   assert.ok(captured.json && typeof captured.json === 'object', 'schema serializes for describe()')
   assert.equal(typeof hooks.setSource, 'function')
 })
-test('all handlers return valid results', async () => {
+test('one /research dispatcher covers every subcommand', async () => {
   const registered = []
   const followups = []
   const agent = { id: 'test-agent', followup: (m) => followups.push(m), inject: () => {} }
@@ -74,14 +74,20 @@ test('all handlers return valid results', async () => {
     on: () => () => {},
     get: () => undefined,
   }, {})
-  assert.equal(registered.length, Object.keys(WORKFLOWS).length + Object.keys(SESSION_COMMANDS).length)
-  const keys = registered.find((d) => d.name === 'keys')
-  assert.equal(keys.recordInput, false)
-  for (const d of registered) {
-    const result = await d.handler({ rawInput: 'sample input', agent, attachments: [] })
-    assert.ok(result && (result.kind === 'success' || result.kind === 'error'), `${d.name}: bad kind`)
-    assert.equal(typeof result.text, 'string', `${d.name}: text must be a string`)
-    if (result.kind === 'error') assert.ok(result.text.length > 0, `${d.name}: empty error`)
+  assert.equal(registered.length, 1)
+  const research = registered[0]
+  assert.equal(research.name, 'research')
+  assert.equal(research.recordInput, false)
+  const run = (rawInput) => research.handler({ rawInput, agent, attachments: [] })
+  for (const sub of [...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)]) {
+    const result = await run(`${sub} sample input`)
+    assert.ok(result && (result.kind === 'success' || result.kind === 'error'), `${sub}: bad kind`)
+    assert.equal(typeof result.text, 'string', `${sub}: text must be a string`)
+    if (result.kind === 'error') assert.ok(result.text.length > 0, `${sub}: empty error`)
   }
+  const unknown = await run('frobnicate x')
+  assert.equal(unknown.kind, 'error')
+  const bare = await run('')
+  assert.equal(bare.kind, 'success', 'bare /research shows help')
   assert.ok(followups.length > 0, 'workflow handlers queue model turns')
 })

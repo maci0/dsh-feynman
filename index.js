@@ -95,13 +95,13 @@ async function keysHandler(invocation, ctx) {
         `Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
         `AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
         '',
-        `Usage: /keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
+        `Usage: /research keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
         `Or export ${refs.hfTokenEnv} / ${refs.alphaxivTokenEnv} before launch; env shadows the store.`,
       ].join('\n'),
     }
   }
   if (args.length < 3 || args[0].toLowerCase() !== 'set') {
-    return { kind: 'error', text: 'Usage: /keys | /keys set <hf|alphaxiv> <value>' }
+    return { kind: 'error', text: 'Usage: /research keys | /research keys set <hf|alphaxiv> <value>' }
   }
   const which = args[1].toLowerCase()
   const ref = which === 'hf' ? refs.hfTokenEnv : which === 'alphaxiv' ? refs.alphaxivTokenEnv : undefined
@@ -120,9 +120,35 @@ async function keysHandler(invocation, ctx) {
 
 function err(text) { return { kind: 'error', text } }
 
+/** Usage line for one subcommand. */
+function subUsage(sub) {
+  const workflow = WORKFLOWS[sub]
+  if (workflow) return `Usage: /research ${sub} ${workflow.hint}`
+  if (sub === 'btw') return 'Usage: /research btw <question>'
+  if (sub === 'search') return 'Usage: /research search <query>'
+  if (sub === 'keys') return 'Usage: /research keys | /research keys set <hf|alphaxiv> <value>'
+  return `Usage: /research <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}>`
+}
+
+/**
+ * Single dispatcher behind `/research`. The first token names a workflow or
+ * session subcommand; the rest is that subcommand's raw input. Attachments
+ * ride along on the sub-invocation.
+ */
+function researchHandler(invocation, ctx, sessionHandlers) {
+  const [sub = '', ...rest] = invocation.rawInput.trim().split(/\s+/).filter(Boolean)
+  const name = sub.toLowerCase()
+  if (!name) return helpHandler({ ...invocation, rawInput: '' })
+  const subInvocation = { ...invocation, rawInput: rest.join(' ') }
+  if (WORKFLOWS[name]) return workflowHandler(name)(subInvocation)
+  const session = sessionHandlers[name]
+  if (session) return session(subInvocation, ctx)
+  return err(`${subUsage('')} — unknown subcommand "${sub}".`)
+}
+
 function workflowHandler(kind) {
   const spec = WORKFLOWS[kind]
-  const usage = `Usage: /${kind} ${spec.hint}`
+  const usage = `Usage: /research ${kind} ${spec.hint}`
   return (invocation) => {
     const args = invocation.rawInput.trim()
     if (spec.required && !args) return err(usage)
@@ -174,12 +200,11 @@ function jobsHandler(invocation, ctx) {
 }
 
 function helpHandler() {
-  const lines = []
-  for (const [title, names] of [['Research workflows', Object.keys(WORKFLOWS)], ['Session', Object.keys(SESSION_COMMANDS)]]) {
-    lines.push(title)
-    for (const n of names) lines.push(`  /${n} — ${WORKFLOWS[n]?.description ?? SESSION_COMMANDS[n]}`)
-  }
-  lines.push('', 'Tip: /review-loop <artifact> [rounds] iterates review→fix→re-review; /review-loop stop ends it.')
+  const lines = ['Research workflows (`/research <subcommand>`):']
+  for (const n of Object.keys(WORKFLOWS)) lines.push(`  ${n} ${WORKFLOWS[n].hint} — ${WORKFLOWS[n].description}`)
+  lines.push('Session (`/research <subcommand>`):')
+  for (const n of Object.keys(SESSION_COMMANDS)) lines.push(`  ${n} — ${SESSION_COMMANDS[n]}`)
+  lines.push('', 'Tip: /research review-loop <artifact> [rounds] iterates review→fix→re-review; /research review-loop stop ends it.')
   return { kind: 'success', text: lines.join('\n') }
 }
 
@@ -204,7 +229,7 @@ function outputsHandler(invocation) {
 
 function btwHandler(invocation) {
   const q = invocation.rawInput.trim()
-  if (!q) return err('Usage: /btw <question>')
+  if (!q) return err('Usage: /research btw <question>')
   // Non-waking context: visible at the next step boundary without hijacking the running turn.
   invocation.agent.inject(userMessage(invocation, `Side question (answer when convenient, main task first): ${q}`))
   return { kind: 'success', text: 'Side question noted as context; the main turn continues undisturbed.' }
@@ -220,7 +245,7 @@ function thinkingHandler(invocation) {
 
 function searchHandler(invocation, ctx) {
   const q = invocation.rawInput.trim()
-  if (!q) return err('Usage: /search <query>')
+  if (!q) return err('Usage: /research search <query>')
   if (typeof service(ctx, 'sessionQuery')?.searchSessions === 'function') {
     return {
       kind: 'success',
@@ -248,16 +273,6 @@ export function apply(ctx, config = {}) {
 
   ctx.effect(() => {
     const disposers = []
-    for (const kind of Object.keys(WORKFLOWS)) {
-      const spec = WORKFLOWS[kind]
-      disposers.push(ctx.commands.register({
-        definitionId: `dsh-researcher:${kind}`,
-        name: kind,
-        description: spec.description,
-        input: { hint: spec.hint, attachments: true },
-        handler: workflowHandler(kind),
-      }))
-    }
     const sessionHandlers = {
       log: logHandler, jobs: jobsHandler, help: helpHandler,
       'feynman-model': () => ({
@@ -272,17 +287,16 @@ export function apply(ctx, config = {}) {
       }),
       keys: keysHandler,
     }
-    for (const [cmd, desc] of Object.entries(SESSION_COMMANDS)) {
-      const handler = sessionHandlers[cmd]
-      disposers.push(ctx.commands.register({
-        definitionId: `dsh-researcher:${cmd}`,
-        name: cmd,
-        description: desc,
-        ...(cmd === 'btw' || cmd === 'search' ? { input: { hint: cmd === 'btw' ? '<question>' : '<query>' } } : {}),
-        ...(cmd === 'keys' ? { input: { hint: '[set <hf|alphaxiv> <value>]' }, recordInput: false } : {}),
-        handler: (inv) => handler(inv, ctx),
-      }))
-    }
+    // One top-level name; everything else rides `research <subcommand>`.
+    // Bare generic names (log, jobs, help, …) belong to the host or the user.
+    disposers.push(ctx.commands.register({
+      definitionId: 'dsh-researcher:research',
+      name: 'research',
+      description: 'Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys)',
+      input: { hint: '<workflow | subcommand> [args]', attachments: true },
+      recordInput: false,
+      handler: (inv) => researchHandler(inv, ctx, sessionHandlers),
+    }))
     // /review-loop driver: after each completed turn, queue the next round.
     const offTurn = ctx.on('session/event', (session, event) => {
       if (event?.type !== 'turn/end' || event?.data?.reason?.kind !== 'completed') return

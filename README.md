@@ -6,34 +6,34 @@ Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (se
 
 | Capability | Extension point | Effect |
 |---|---|---|
-| 14 workflow commands | `ctx.commands.register()` | `/deepresearch`, `/lit`, `/review`, `/review-loop`, `/audit`, `/replicate`, `/recipe`, `/compare`, `/draft`, `/autoresearch`, `/watch`, `/rank`, `/paper`, `/preview` queue a workflow brief as the agent's next turn. |
-| 11 session commands | `ctx.commands.register()` | `/log`, `/jobs`, `/help`, `/feynman-model`, `/init`, `/outputs`, `/btw`, `/thinking`, `/search`, `/web-results`, `/keys` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
-| Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/review-loop` queues the next fix→re-review round until rounds run out; `/review-loop stop` ends it early. |
+| 14 workflow subcommands | one `/research` dispatcher | `deepresearch`, `lit`, `review`, `review-loop`, `audit`, `replicate`, `recipe`, `compare`, `draft`, `autoresearch`, `watch`, `rank`, `paper`, `preview` queue a workflow brief as the agent's next turn. |
+| 11 session subcommands | one `/research` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
+| Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/research review-loop` queues the next fix→re-review round until rounds run out; `/research review-loop stop` ends it early. |
 | Research Keys card | `settings.plugin.item` slot + `research-keys` settings namespace | A **Research Keys** card in Settings → Plugins → **Plugin configuration** saves the Hugging Face and AlphaXiv keys through the credentials domain — key literals never touch settings. |
 | Key-aware briefs | `buildPrompt()` | Every workflow brief names the live key refs and tells the model to treat unset ones as blocked. |
 
 ## Workflows
 
-Each command queues its brief as the agent's next turn; the followup IS the work. Retrieval maps to `web_search`/`web_fetch` plus workspace tools (`read`, `grep`, `glob`, `bash`) — there are no separate paper or dataset tools. Broad work fans out through the `subagent` tool; narrow explainers stay lead-owned.
+Each subcommand queues its brief as the agent's next turn; the followup IS the work. Retrieval maps to `web_search`/`web_fetch` plus workspace tools (`read`, `grep`, `glob`, `bash`) — there are no separate paper or dataset tools. Broad work fans out through the `subagent` tool; narrow explainers stay lead-owned.
 
 | Command | Produces |
 |---|---|
-| `/deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References |
-| `/lit <topic-or-lab>` | Literature review: Consensus, Disagreements, Open Questions, Timeline (or lab/PI corpus mode) |
-| `/review <artifact>` | Severity-graded critique (critical/major/minor/nit) with confidence scores |
-| `/review-loop <artifact> [rounds]` | Bounded review→fix→re-review loop, default 3 rounds, max 10 |
-| `/audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers |
-| `/replicate <paper-or-claim>` | Replication plan; executes only after you pick an environment |
-| `/recipe <task>` | Ranked implementable ML training recipes with dataset/method/hyperparameter links |
-| `/compare <topic-or-sources>` | Agreement/disagreement matrix across sources |
-| `/draft <topic \| --from-session>` | Academic draft with inline citations; unsupported claims become TODOs, never invented |
-| `/autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark |
-| `/watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted) |
-| `/rank <topic>` | Transparent read-first paper ranking with per-paper score math |
-| `/paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses |
-| `/preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
+| `/research deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References |
+| `/research lit <topic-or-lab>` | Literature review: Consensus, Disagreements, Open Questions, Timeline (or lab/PI corpus mode) |
+| `/research review <artifact>` | Severity-graded critique (critical/major/minor/nit) with confidence scores |
+| `/research review-loop <artifact> [rounds]` | Bounded review→fix→re-review loop, default 3 rounds, max 10 |
+| `/research audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers |
+| `/research replicate <paper-or-claim>` | Replication plan; executes only after you pick an environment |
+| `/research recipe <task>` | Ranked implementable ML training recipes with dataset/method/hyperparameter links |
+| `/research compare <topic-or-sources>` | Agreement/disagreement matrix across sources |
+| `/research draft <topic \| --from-session>` | Academic draft with inline citations; unsupported claims become TODOs, never invented |
+| `/research autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark |
+| `/research watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted) |
+| `/research rank <topic>` | Transparent read-first paper ranking with per-paper score math |
+| `/research paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses |
+| `/research preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
 
-Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/outputs` lists them, `/log` writes the session log.
+Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/research outputs` lists them, `/research log` writes the session log.
 
 ## API keys (Hugging Face + AlphaXiv)
 
@@ -41,7 +41,7 @@ Three ways, in precedence order (environment shadows the store):
 
 1. **Config UI** — the Research Keys card: password field per key, set/unset badge, Save, Clear.
 2. **Shell** — `export HF_TOKEN=hf_… ALPHAXIV_API_KEY=…` before launch.
-3. **Command** — `/keys` shows status (values never echoed, input never logged); `/keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
+3. **Command** — `/keys` shows status (values never echoed, input never logged); `/research keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
 
 Row config renames the refs only (defaults `HF_TOKEN` / `ALPHAXIV_API_KEY`); invalid names fail at load.
 
@@ -66,10 +66,10 @@ pnpm dsh web --patch /path/to/dsh-researcher/cordis.local.yml
 
 After a restart of the profile and a **page refresh** of the Web client:
 
-- `/help` lists the 25 commands;
-- `/keys` reports both key states;
+- `/research help` lists the 25 subcommands;
+- `/research keys` reports both key states;
 - Settings → Plugins → **Plugin configuration** shows the Research Keys card;
-- `/deepresearch <topic>` queues a brief and writes `outputs/<slug>-brief.md`.
+- `/research deepresearch <topic>` queues a brief and writes `outputs/<slug>-brief.md`.
 
 ## Configuration
 
@@ -83,7 +83,7 @@ Invalid configuration fails while the plugin loads rather than silently pointing
 ## Layout
 
 ```
-index.js          host plugin: commands, review-loop driver, /keys, research-keys namespace
+index.js          host plugin: /research dispatcher, review-loop driver, research-keys namespace
 prompts.js        pure workflow catalog (no harness imports; unit-tested with plain node)
 lib/client.js     browser half: the Research Keys card (loader factory format)
 cordis.patch.yml  the bundle layer: the one plugin row the boot mounts
