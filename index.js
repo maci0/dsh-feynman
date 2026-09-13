@@ -9,7 +9,7 @@
  *
  * Load via `--patch cordis.patch.yml` or `dsh plugin add ./dsh-feynman`.
  */
-import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, loopFollowupPrompt, slugify } from './prompts.js'
+import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, slugify } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'feynman'
@@ -172,7 +172,7 @@ function workflowHandler(kind) {
       return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
     }
     // Queue the workflow brief as the agent's next turn; the followup IS the work.
-    // Rank parses every PaperRank flag; unknown --flags are rejected, never absorbed into the topic.
+    // Rank and paper parse every flag; unknown --flags are rejected, never absorbed into the topic.
     if (kind === 'rank') {
       const parsed = parseRankArgs(args)
       if (!parsed.topic) return err(usage)
@@ -182,6 +182,16 @@ function workflowHandler(kind) {
       const body = buildPrompt(kind, parsed, liveRefs())
       invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
       return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in ${parsed.outputDir}/.` }
+    }
+    if (kind === 'paper') {
+      const parsed = parsePaperArgs(args)
+      if (!parsed.id) return err(usage)
+      if (parsed.unsupported.length > 0) {
+        return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman paper ${WORKFLOWS.paper.hint}\`.`)
+      }
+      const body = buildPrompt(kind, parsed, liveRefs())
+      invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
+      return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
     }
     const body = kind === 'review-loop'
       ? reviewLoopPrompt(invocation, args)
@@ -227,6 +237,47 @@ function jobsHandler(invocation, ctx) {
   } catch { lines.push('Job state is unavailable in this composition.') }
   lines.push('Durable artifacts: outputs/<slug>-baseline.md (watch), autoresearch.md + autoresearch.jsonl (autoresearch).')
   return { kind: 'success', text: lines.join('\n') }
+}
+
+async function doctorHandler(invocation, ctx) {
+  if (invocation.rawInput.trim()) return err('Usage: /feynman doctor (no arguments)')
+  const refs = liveRefs()
+  const lines = ['Feynman diagnostics:']
+  for (const [label, ref] of [['Hugging Face', refs.hfTokenEnv], ['AlphaXiv', refs.alphaxivTokenEnv]]) {
+    lines.push(`- ${label} key (${ref}): ${await keyState(ctx, ref)}`)
+  }
+  const present = (key) => service(ctx, key) !== undefined && service(ctx, key) !== null
+  for (const [label, key] of [['credentials store', 'credentials'], ['settings (config card)', 'settings'],
+    ['jobs', 'jobs'], ['session search', 'sessionQuery'], ['scheduler', 'schedule']]) {
+    lines.push(`- ${label}: ${present(key) ? 'mounted' : 'absent — related commands degrade to guidance text'}`)
+  }
+  try {
+    const { execFileSync } = await import('node:child_process')
+    execFileSync('pandoc', ['--version'], { stdio: 'ignore' })
+    lines.push('- pandoc: installed (`/feynman preview` can render)')
+  } catch {
+    lines.push('- pandoc: NOT found (`/feynman preview` will give the install command)')
+  }
+  lines.push(`- Config card: ${cardState(ctx)}`)
+  return { kind: 'success', text: lines.join('\n') }
+}
+
+async function statusHandler(invocation, ctx) {
+  if (invocation.rawInput.trim()) return err('Usage: /feynman status (no arguments)')
+  const refs = liveRefs()
+  const [hf, ax] = await Promise.all([keyState(ctx, refs.hfTokenEnv), keyState(ctx, refs.alphaxivTokenEnv)])
+  return {
+    kind: 'success',
+    text: [
+      'Feynman setup summary:',
+      `- Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
+      `- AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
+      `- Key refs: hfTokenEnv=${refs.hfTokenEnv} alphaxivTokenEnv=${refs.alphaxivTokenEnv} (row config; invalid names fail at load)`,
+      '- Model route: one profile route (see the agent-default-model row); per-turn overrides are not supported here.',
+      '- Thinking levels: off, minimal, low, medium, high, xhigh, max (note a level with /feynman thinking <level>).',
+      '- For the full checklist run /feynman doctor.',
+    ].join('\n'),
+  }
 }
 
 function helpHandler() {
@@ -315,14 +366,14 @@ export function apply(ctx, config = {}) {
         kind: 'success',
         text: 'Stored web results live in this session log (web_search/web_fetch tool calls). Ask me to summarize the sources fetched so far and I will reconstruct them from history.',
       }),
-      keys: keysHandler,
+      keys: keysHandler, doctor: doctorHandler, status: statusHandler,
     }
     // One top-level name; everything else rides `feynman <subcommand>`.
     // Bare generic names (log, jobs, help, …) belong to the host or the user.
     disposers.push(ctx.commands.register({
       definitionId: 'dsh-feynman:feynman',
       name: 'feynman',
-      description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys)',
+      description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys, doctor, status)',
       input: { hint: '<workflow | subcommand> [args]', attachments: true },
       recordInput: false,
       handler: (inv) => researchHandler(inv, ctx, sessionHandlers),
@@ -344,4 +395,4 @@ export function apply(ctx, config = {}) {
 }
 
 // Re-exported for tests.
-export { slugify, parseLoopArgs, parseRankArgs, loopFollowupPrompt }
+export { slugify, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt }

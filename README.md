@@ -7,7 +7,7 @@ Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (se
 | Capability | Extension point | Effect |
 |---|---|---|
 | 14 workflow subcommands | one `/feynman` dispatcher | `deepresearch`, `lit`, `review`, `review-loop`, `audit`, `replicate`, `recipe`, `compare`, `draft`, `autoresearch`, `watch`, `rank`, `paper`, `preview` queue a workflow brief as the agent's next turn. |
-| 11 session subcommands | one `/feynman` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
+| 13 session subcommands | one `/feynman` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys`, `doctor`, `status` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
 | Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/feynman review-loop` queues the next fix→re-review round until rounds run out; `/feynman review-loop stop` ends it early. |
 | Research Keys card | `settings.plugin.item` slot + `research-keys` settings namespace | A **Research Keys** card in Settings → Plugins → **Plugin configuration** saves the Hugging Face and AlphaXiv keys through the credentials domain — key literals never touch settings. |
 | Key-aware briefs | `buildPrompt()` | Every workflow brief names the live key refs and tells the model to treat unset ones as blocked. |
@@ -30,7 +30,7 @@ Each subcommand queues its brief as the agent's next turn; the followup IS the w
 | `/feynman autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark (log + JSONL + CHANGELOG milestones) |
 | `/feynman watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted); each check compares against the baseline |
 | `/feynman rank <topic> [flags]` | Full PaperRank port: run manifest, ranked brief, paper/score JSONL, score audit, citation graph + HTML explorer, field map, sensitivity data, provenance — plus critique, calibration, reproduction, and synthesis artifacts when the matching flags are passed |
-| `/feynman paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses; writes `<slug>-paper-access.md` + `.json` |
+| `/feynman paper <id> [--fetch-full-text] [--json]` | Legal full-text access candidates, no paywall bypasses; writes `<slug>-paper-access.md` + `.json` |
 | `/feynman preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
 
 ```
@@ -74,8 +74,9 @@ pnpm dsh web --patch /path/to/dsh-feynman/cordis.local.yml
 
 After a restart of the profile and a **page refresh** of the Web client:
 
-- `/feynman help` lists the 25 subcommands;
+- `/feynman help` lists the 27 subcommands;
 - `/feynman keys` reports both key states;
+- `/feynman doctor` reports key state, mounted seams, pandoc, and the card;
 - Settings → Plugins → **Plugin configuration** shows the Research Keys card;
 - `/feynman deepresearch <topic>` queues a brief and writes `outputs/<slug>-brief.md`.
 

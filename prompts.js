@@ -152,10 +152,25 @@ ${fullTextTop > 0 ? `3. Full-text enrichment: fetch source-specific full text fo
 ${critiqueTop > 0 ? `Critique: write ${slug}-critique.md with deterministic research-critique strengths, concerns, and follow-up questions for the top ${critiqueTop} papers, grounded in PaperRank evidence (component scores, warnings, source spans, rubric answers) — a triage aid, not an external review decision.\n` : ''}${preferenceFile ? `Calibration: read ${preferenceFile} (rankedPaperIds + pairwise preferences), evaluate whether each preferred paper ranks ahead, report default/profile agreement rates, and write ${slug}-score-calibration.json, ${slug}-calibration-template.json, ${slug}-calibration-guide.md. IDs outside the run count as ignored, never silently dropped.\n` : 'Calibration: no preference file supplied — record that default weights are a transparent product hypothesis, not fitted preferences, and write no calibration files.\n'}${reproductionNotes ? `Reproduction: read ${reproductionNotes} (statuses reproduced / partially_reproduced / failed / not_runnable plus central claim, result, metric, expected/observed values, discrepancy, code/data/environment hints, commands, check date) and write ${slug}-reproduction-ledger.json, ${slug}-reproduction-notes-template.json, ${slug}-replication-plan.md. Notes outside the ranked seed set count as ignored. The ledger records externally supplied notes; it does not execute experiments or embed raw full text.\n` : 'Reproduction: no completed reproduction notes supplied — record that inside the brief and provenance, and write no reproduction files.\n'}${synthesize ? `Synthesis: write ${slug}-synthesis-packet.json and ${slug}-synthesis-prompt.md (ranks, score explanations, field roles, critique summaries, rubric gaps, span excerpts, references for the top ${synthesisTop} papers; omit raw full-text bodies), then ask ${selModel} to write ${slug}-model-synthesis.md from that packet. CLI output, synthesis, JSON summary, and provenance record the actual model plus whether it came from the recommendation path or an explicit override.\n` : ''}${json ? 'Also print a compact JSON summary after writing artifacts.\n' : ''}`
 }
 
-const PAPER_PROMPT = (id) => `${TOOL_PRELUDE}
+/** Split `/paper <id> [--fetch-full-text] [--json]` flags. Unknown --flags are rejected. */
+export function parsePaperArgs(rawInput) {
+  const parts = rawInput.trim().split(/\s+/).filter(Boolean)
+  const out = { id: '', fetchFullText: false, json: false, unsupported: [] }
+  const idParts = []
+  for (const token of parts) {
+    if (token === '--fetch-full-text') out.fetchFullText = true
+    else if (token === '--json') out.json = true
+    else if (token.startsWith('--')) out.unsupported.push(token)
+    else idParts.push(token)
+  }
+  out.id = idParts.join(' ')
+  return out
+}
+
+const PAPER_PROMPT = ({ id, fetchFullText = false, json = false }) => `${TOOL_PRELUDE}
 
 Workflow: paper access resolution for "${id}" (DOI, PubMed ID, arXiv ID, or title).
-Resolve access candidates via OpenAlex, DOI, PubMed/PMCID, arXiv, and Europe PMC; for a title, search OpenAlex first. Report candidates without bypassing paywalls. With --fetch-full-text, fetch text only through source-sanctioned APIs and write bounded artifacts (summary + access record), never raw full-text dumps. Write outputs/${slugify(id)}-paper-access.md and outputs/${slugify(id)}-paper-access.json.`
+Resolve access candidates via OpenAlex, DOI, PubMed/PMCID, arXiv, and Europe PMC; for a title, search OpenAlex first. Report candidates without bypassing paywalls.${fetchFullText ? ' With --fetch-full-text, fetch text only through source-sanctioned APIs and write bounded artifacts (summary + access record), never raw full-text dumps.' : ' No full-text fetch requested — access candidates only.'} Write outputs/${slugify(id)}-paper-access.md and outputs/${slugify(id)}-paper-access.json.${json ? ' Also print a compact JSON access summary after writing artifacts.' : ''}`
 
 const PREVIEW_PROMPT = (target) => `${TOOL_PRELUDE}
 
@@ -243,7 +258,7 @@ export const WORKFLOWS = {
   },
   paper: {
     description: 'Resolve legal full-text access candidates for one paper',
-    hint: '<DOI | PubMed-ID | arXiv-ID | title> [--fetch-full-text]',
+    hint: '<DOI | PubMed-ID | arXiv-ID | title> [--fetch-full-text] [--json]',
     required: true,
     prompt: PAPER_PROMPT,
   },
@@ -268,6 +283,8 @@ export const SESSION_COMMANDS = {
   search: 'Search prior session transcripts for past research and findings',
   'web-results': 'List web sources fetched this session with result metadata',
   keys: 'Show or store research API keys (Hugging Face, AlphaXiv)',
+  doctor: 'Diagnose key state, mounted seams, pandoc, and the config card',
+  status: 'Show the current setup summary (keys, refs, model route)',
 }
 
 /** Feynman's thinking levels, accepted by /thinking. */

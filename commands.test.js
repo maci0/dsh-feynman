@@ -1,21 +1,22 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slugify, parseLoopArgs, parseRankArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
+import { slugify, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
 import { apply } from './index.js'
 
 // Every Feynman workflow slash command is mapped.
 test('all Feynman workflow commands mapped', () => {
-  for (const cmd of ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'paper', 'preview']) {
+  for (const cmd of ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'preview']) {
     assert.ok(WORKFLOWS[cmd], `missing /${cmd}`)
     assert.ok(WORKFLOWS[cmd].prompt('x').length > 100, `/${cmd} prompt is a stub`)
   }
   assert.ok(WORKFLOWS['review-loop'], 'missing /review-loop')
   assert.ok(WORKFLOWS.rank.prompt({ topic: 'x', limit: 20 }).length > 100, 'rank prompt is a stub')
+  assert.ok(WORKFLOWS.paper.prompt({ id: 'x' }).length > 100, 'paper prompt is a stub')
 })
 
 // Every Feynman session/utility command is mapped.
 test('all session commands mapped', () => {
-  for (const cmd of ['log', 'jobs', 'help', 'feynman-model', 'init', 'outputs', 'btw', 'thinking', 'search', 'web-results', 'keys']) {
+  for (const cmd of ['log', 'jobs', 'help', 'feynman-model', 'init', 'outputs', 'btw', 'thinking', 'search', 'web-results', 'keys', 'doctor', 'status']) {
     assert.ok(SESSION_COMMANDS[cmd], `missing /${cmd}`)
   }
   assert.ok(THINKING_LEVELS.includes('max') && THINKING_LEVELS.includes('off'))
@@ -24,7 +25,9 @@ test('all session commands mapped', () => {
 // The composed brief carries live key refs and still assumes nothing else.
 test('composed brief names key refs, nothing external', () => {
   for (const [cmd, spec] of Object.entries(WORKFLOWS)) {
-    const arg = cmd === 'rank' ? { topic: 'sample input', limit: 20 } : 'sample input'
+    const arg = cmd === 'rank' ? { topic: 'sample input', limit: 20 }
+      : cmd === 'paper' ? { id: 'sample input' }
+        : 'sample input'
     const p = spec.prompt(arg).toLowerCase()
     for (const term of ['sota', 'pmid']) {
       assert.ok(!p.includes(term), `/${cmd} prompt references "${term}" the model cannot know`)
@@ -66,6 +69,12 @@ test('rank args: every PaperRank flag parsed, unknowns rejected', () => {
   assert.deepEqual(parseRankArgs('scaling laws --limit 200').limit, 100)
   // Bare flag values never become the topic.
   assert.equal(parseRankArgs('--limit 5').topic, '')
+})
+test('paper args: flags parsed, multi-word titles kept, unknowns rejected', () => {
+  assert.deepEqual(parsePaperArgs('10.1234/abc --fetch-full-text --json'), { id: '10.1234/abc', fetchFullText: true, json: true, unsupported: [] })
+  assert.deepEqual(parsePaperArgs('attention is all you need'), { id: 'attention is all you need', fetchFullText: false, json: false, unsupported: [] })
+  assert.deepEqual(parsePaperArgs('2401.12345 --bogus'), { id: '2401.12345', fetchFullText: false, json: false, unsupported: ['--bogus'] })
+  assert.deepEqual(parsePaperArgs('--json'), { id: '', fetchFullText: false, json: true, unsupported: [] })
 })
 
 // The research-keys namespace registers with row config as its base layer.
@@ -144,4 +153,20 @@ test('one /feynman dispatcher covers every subcommand', async () => {
     'synthesis-packet.json', 'synthesis-prompt.md', 'model-synthesis.md']) {
     assert.ok(brief.includes(artifact), `brief omits ${artifact}`)
   }
+  // Paper flags: fetch + json reach the brief, unknowns fail loud.
+  const papered = await run('paper 2401.12345 --fetch-full-text --json')
+  assert.equal(papered.kind, 'success')
+  assert.ok(followups.at(-1).content[0].text.includes('fetch text only through source-sanctioned APIs'), 'fetch flag reaches the brief')
+  const paperFlagged = await run('paper 2401.12345 --bogus')
+  assert.equal(paperFlagged.kind, 'error')
+  assert.ok(paperFlagged.text.includes('--bogus'), 'unsupported paper flag named')
+  // Doctor + status answer directly (no followup queued).
+  const before = followups.length
+  const doctor = await run('doctor')
+  assert.equal(doctor.kind, 'success')
+  assert.ok(doctor.text.includes('pandoc'), 'doctor covers preview deps')
+  const status = await run('status')
+  assert.equal(status.kind, 'success')
+  assert.ok(status.text.includes('setup summary'), 'status summarizes setup')
+  assert.equal(followups.length, before, 'diagnostics queue no model turn')
 })
