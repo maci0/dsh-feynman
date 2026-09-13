@@ -81,6 +81,24 @@ function textOf(node) {
   return textOf(node.children)
 }
 
+/** Every direct child must be renderable: no raw objects reach React. */
+function assertRenderable(node, path = 'root') {
+  if (node === null || node === undefined || typeof node === 'string'
+    || typeof node === 'number' || typeof node === 'boolean') return
+  if (Array.isArray(node)) {
+    node.forEach((child, i) => assertRenderable(child, `${path}[${i}]`))
+    return
+  }
+  if (typeof node === 'object' && node.type === undefined) {
+    throw new Error(`${path} renders a raw object with keys: ${Object.keys(node).join(',')}`)
+  }
+  if (typeof node.type === 'function') {
+    assertRenderable(node.type(node.props), `${path}()`)
+    return
+  }
+  assertRenderable(node.children, `${path}.${node.type}`)
+}
+
 test('card registers under the research-keys namespace', () => {
   const { bundle, registered } = loadBundle({
     snapshot: readySnapshot,
@@ -120,7 +138,30 @@ test('open card shows configured badges without leaking literals', async () => {
   await new Promise((resolve) => setTimeout(resolve, 10))
   React.reset()
   const open = Card()
+  assertRenderable(open)
   const text = textOf(open)
   assert.ok(text.includes('HF_TOKEN') && text.includes('ALPHAXIV_API_KEY'), 'refs shown')
   assert.ok(!text.includes('hf-sk-') && !text.includes('ax-sk-'), 'literal leaked')
+})
+
+// Adversarial describe payloads must degrade to badges, never object children.
+test('malformed describe responses cannot reach the render', async () => {
+  for (const payload of [
+    { ok: true, value: { HF_TOKEN: { configured: {}, writable: [] } } },
+    { ok: true, value: null },
+    { ok: false, error: { message: 'nope' } },
+    null,
+    [1, 2],
+  ]) {
+    const { registered, React } = loadBundle({
+      snapshot: readySnapshot,
+      credentials: { describe: async () => payload },
+    })
+    const Card = registered[0].component
+    React.reset()
+    Card().children.find((c) => c.type === 'button').props.onClick()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    React.reset()
+    assertRenderable(Card(), JSON.stringify(payload)?.slice(0, 40))
+  }
 })
