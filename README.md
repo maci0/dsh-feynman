@@ -83,7 +83,7 @@ Invalid configuration fails while the plugin loads rather than silently pointing
 ## Layout
 
 ```
-index.js          host plugin: /research dispatcher, review-loop driver, research-keys namespace
+index.js          host plugin: /feynman dispatcher, review-loop driver, research-keys namespace
 prompts.js        pure workflow catalog (no harness imports; unit-tested with plain node)
 lib/client.js     browser half: the Research Keys card (loader factory format)
 cordis.patch.yml  the bundle layer: the one plugin row the boot mounts

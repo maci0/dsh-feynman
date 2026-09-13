@@ -4,7 +4,7 @@
 # package name instead.
 - insert:
     - id: feynman
-      name: '/home/maci/Desktop/dsh-researcher/index.js'
+      name: '/home/maci/Desktop/dsh-feynman/index.js'
       config:
         hfTokenEnv: HF_TOKEN
         alphaxivTokenEnv: ALPHAXIV_API_KEY
