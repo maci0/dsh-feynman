@@ -71,6 +71,18 @@ function liveRefs() {
   return keyRefs
 }
 
+/** Whether the settings namespace behind the config card is served. */
+function cardState(ctx) {
+  try {
+    const settings = service(ctx, 'settings')
+    if (!settings) return 'settings service absent — card unavailable on minimal profiles'
+    settings.get(RESEARCH_KEYS_NAMESPACE)
+    return 'namespace served — card should appear under Plugin configuration'
+  } catch (error) {
+    return `namespace NOT served (${error instanceof Error ? error.message : String(error)})`
+  }
+}
+
 /** Optional service lookup: ctx.get returns undefined when absent. */
 const service = (ctx, key) => ctx.get?.(key)
 
@@ -94,6 +106,7 @@ async function keysHandler(invocation, ctx) {
       text: [
         `Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
         `AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
+        `Config card: ${cardState(ctx)}`,
         '',
         `Usage: /research keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
         `Or export ${refs.hfTokenEnv} / ${refs.alphaxivTokenEnv} before launch; env shadows the store.`,
