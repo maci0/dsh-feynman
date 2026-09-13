@@ -1,6 +1,6 @@
 - insert:
-    - id: feynman-commands
-      name: dsh-feynman-commands
+    - id: researcher
+      name: dsh-researcher
       # Optional: rename the env refs the prompts point at. Defaults shown.
       # Secrets themselves are never config — export them or use /keys set.
       config:

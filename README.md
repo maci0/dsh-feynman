@@ -1,4 +1,4 @@
-# dsh-feynman-commands
+# dsh-researcher
 
 Feynman-style research workflow slash commands for DeepSeek Harness, as one out-of-tree bundle. Sources: [slash commands](https://www.feynman.is/docs/reference/slash-commands), [workflows](https://www.feynman.is/docs/workflows/deep-research), [agents](https://www.feynman.is/docs/agents/researcher), [tools](https://www.feynman.is/docs/tools/web-search), [CLI](https://www.feynman.is/docs/reference/cli-commands).
 
@@ -48,7 +48,7 @@ node --test commands.test.js
 
 ## Files
 
-- `index.js` — plugin (`feynman-commands`, injects `commands` only)
+- `index.js` — plugin (`researcher`, injects `commands` only)
 - `prompts.js` — pure workflow catalog (tested)
 - `lib/client.js` — browser card (Research Keys, served via `./client`)
 - `cordis.patch.yml` — bundle layer (package name; for `dsh plugin add`)

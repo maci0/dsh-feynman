@@ -12,7 +12,7 @@
 import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, loopFollowupPrompt, slugify } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
 
-export const name = 'feynman-commands'
+export const name = 'researcher'
 // Only commands is required; every other seam is read through service(),
 // which returns undefined when absent, so the bundle loads on minimal profiles.
 export const inject = ['commands']
@@ -51,7 +51,7 @@ function normalizeConfig(config) {
   }
   for (const [field, value] of Object.entries(refs)) {
     if (typeof value !== 'string' || !REF_PATTERN.test(value)) {
-      throw new Error(`[feynman-commands] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
+      throw new Error(`[researcher] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
     }
   }
   return refs
@@ -259,7 +259,7 @@ export function apply(ctx, config = {}) {
     for (const kind of Object.keys(WORKFLOWS)) {
       const spec = WORKFLOWS[kind]
       disposers.push(ctx.commands.register({
-        definitionId: `dsh-feynman-commands:${kind}`,
+        definitionId: `dsh-researcher:${kind}`,
         name: kind,
         description: spec.description,
         input: { hint: spec.hint, attachments: true },
@@ -275,7 +275,7 @@ export function apply(ctx, config = {}) {
     for (const [cmd, desc] of Object.entries(SESSION_COMMANDS)) {
       const handler = sessionHandlers[cmd]
       disposers.push(ctx.commands.register({
-        definitionId: `dsh-feynman-commands:${cmd}`,
+        definitionId: `dsh-researcher:${cmd}`,
         name: cmd,
         description: desc,
         ...(cmd === 'btw' || cmd === 'search' ? { input: { hint: cmd === 'btw' ? '<question>' : '<query>' } } : {}),
