@@ -36,6 +36,8 @@ function loadBundle({ snapshot, credentials }) {
   const scope = { subscribe: () => () => {}, getSnapshot: () => snapshot }
   const remote = { credentials, $on: () => () => {} }
   const registered = []
+  const decorated = []
+  const submitted = []
   const ctx = {
     settingsScope: { bind: () => scope },
     locale: {
@@ -52,6 +54,10 @@ function loadBundle({ snapshot, credentials }) {
     },
     remote,
     effect: (fn) => { fn() },
+    commandUi: { decorate: (spec) => { decorated.push(spec); return () => {} } },
+    sessions: {
+      binding: () => ({ session: { command: (line) => { submitted.push(line); return Promise.resolve({ ok: true, value: { matched: true } }) } } }),
+    },
   }
   const factorySrc = src
   let bundle
@@ -62,7 +68,7 @@ function loadBundle({ snapshot, credentials }) {
     fakeWindow, {}, {}, () => { throw new Error('no require') },
   )
   bundle.apply(ctx)
-  return { bundle, registered, React }
+  return { bundle, registered, decorated, submitted, React }
 }
 
 const readySnapshot = {
@@ -104,7 +110,7 @@ test('card registers under the research-keys namespace', () => {
     snapshot: readySnapshot,
     credentials: { describe: async () => ({ ok: true, value: {} }) },
   })
-  assert.deepEqual(bundle.inject, ['slots', 'settingsScope', 'locale', 'remote', 'remote.credentials'])
+  assert.deepEqual(bundle.inject, ['slots', 'settingsScope', 'locale', 'remote', 'remote.credentials', 'commandUi', 'sessions'])
   assert.equal(registered.length, 1)
   assert.equal(registered[0].entry.key, 'research-keys')
 })
@@ -164,4 +170,28 @@ test('malformed describe responses cannot reach the render', async () => {
     React.reset()
     assertRenderable(Card(), JSON.stringify(payload)?.slice(0, 40))
   }
+})
+
+test('bare /feynman opens a subcommand picker matching the host catalog', async () => {
+  const { WORKFLOWS, SESSION_COMMANDS } = await import('./prompts.js')
+  const { bundle, decorated, submitted } = loadBundle({
+    snapshot: readySnapshot,
+    credentials: { describe: async () => ({ ok: true, value: {} }) },
+  })
+  assert.equal(decorated.length, 1)
+  assert.equal(decorated[0].name, 'feynman')
+  assert.equal(decorated[0].ui.kind, 'popupSelect')
+  assert.equal(decorated[0].available({ sessionId: 's' }), true)
+  const options = await decorated[0].ui.options({ sessionId: 's' }, new AbortController().signal)
+  const ids = options.map((o) => o.id)
+  // Every host subcommand is pickable, nothing extra.
+  assert.deepEqual([...ids].sort(), [...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].sort())
+  for (const o of options) {
+    assert.ok(o.label.startsWith('/feynman '), `label claims the line: ${o.label}`)
+    assert.equal(typeof o.detail, 'string')
+  }
+  // A pick submits the completed line back through the host.
+  await decorated[0].ui.onSelect(options.find((o) => o.id === 'review'), { sessionId: 's' })
+  assert.deepEqual(submitted, ['/feynman review '])
+  assert.ok(bundle.SUBCOMMANDS.length === ids.length, 'exported table matches options')
 })

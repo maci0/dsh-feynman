@@ -9,6 +9,7 @@ Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (se
 | 14 workflow subcommands | one `/feynman` dispatcher | `deepresearch`, `lit`, `review`, `review-loop`, `audit`, `replicate`, `recipe`, `compare`, `draft`, `autoresearch`, `watch`, `rank`, `paper`, `preview` queue a workflow brief as the agent's next turn. |
 | 13 session subcommands | one `/feynman` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys`, `doctor`, `status` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
 | Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/feynman review-loop` queues the next fix→re-review round until rounds run out; `/feynman review-loop stop` ends it early. |
+| Subcommand picker | `commandUi.decorate('feynman')` | Bare `/feynman` (menu pick or enter) opens a subcommand popup; a pick submits the completed `/feynman <sub>` line, so every subcommand is completable from the `/` menu. |
 | Research Keys card | `settings.plugin.item` slot + `research-keys` settings namespace | A **Research Keys** card in Settings → Plugins → **Plugin configuration** saves the Hugging Face and AlphaXiv keys through the credentials domain — key literals never touch settings. |
 | Key-aware briefs | `buildPrompt()` | Every workflow brief names the live key refs and tells the model to treat unset ones as blocked. |
 
