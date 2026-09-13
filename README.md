@@ -29,11 +29,17 @@ Each subcommand queues its brief as the agent's next turn; the followup IS the w
 | `/feynman draft <topic \| --from-session>` | Academic draft with inline citations; unsupported claims become TODOs, never invented |
 | `/feynman autoresearch <idea>` | Bounded hypothesis→experiment→analysis→decision loop against a benchmark (log + JSONL + CHANGELOG milestones) |
 | `/feynman watch <topic>` | Baseline survey plus a refresh plan (`schedule_create` when mounted); each check compares against the baseline |
-| `/feynman rank <topic> [--limit N]` | Transparent read-first paper ranking with per-paper score math (+ sensitivity note + provenance). `--limit` only — `--expand-citations`, `--full-text-top`, `--critique-top`, `--preference-file`, `--reproduction-notes`, `--synthesize` are rejected, not absorbed (see Limits) |
+| `/feynman rank <topic> [flags]` | Full PaperRank port: run manifest, ranked brief, paper/score JSONL, score audit, citation graph + HTML explorer, field map, sensitivity data, provenance — plus critique, calibration, reproduction, and synthesis artifacts when the matching flags are passed |
 | `/feynman paper <id> [--fetch-full-text]` | Legal full-text access candidates, no paywall bypasses; writes `<slug>-paper-access.md` + `.json` |
 | `/feynman preview [artifact]` | Pandoc render of a research artifact (HTML/PDF) |
 
-Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/feynman outputs` lists them, `/feynman log` writes the session log.
+```
+/feynman rank "scaling laws" --limit 20 --json
+/feynman rank "scaling laws" --expand-citations 2 --full-text-top 3 --critique-top 5
+/feynman rank "scaling laws" --preference-file preferences.json --reproduction-notes notes.json --synthesize --synthesis-model provider/model --output-dir outputs
+```
+
+Artifacts land under `outputs/` (`*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, …); `/feynman outputs` lists them, `/feynman log` writes the session log. Rank writes the full PaperRank set (`*-research-run.json`, `*-papers.jsonl`, `*-scores.jsonl`, `*-score-audit.md`, `*-citation-graph.json`, `*-graph-explorer.html`, `*-field-map.json`, `*-rank-sensitivity.json`, `*-rank.provenance.md`, plus critique/calibration/reproduction/synthesis outputs when flagged).
 
 ## API keys (Hugging Face + AlphaXiv)
 
@@ -116,7 +122,7 @@ then restart the profile. The same reconcile pass that added the package to `dsh
 - **A plugin source edit needs a profile restart.** The Loader imports plugin modules with ESM semantics, so a live patch reload re-runs `apply` from the module already in memory.
 - **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package, so the host half can stay up.
 - **Review-loop state is process-local.** Loop rounds live in a module-level map keyed by session id; a profile restart forgets them. Durable loop state arrives when it needs to survive restarts.
-- **Ranking is a live heuristic.** `/rank` scores are computed transparently in-session and say so in the output; they are not a fitted model or a deterministic scorer. Only `--limit` is supported; the remaining PaperRank flags (`--expand-citations`, `--full-text-top`, `--critique-top`, `--preference-file`, `--reproduction-notes`, `--synthesize`) and their JSONL/graph-explorer/calibration artifacts are not ported — the handler rejects them instead of absorbing them into the topic.
+- **Ranking is a live heuristic.** `/rank` scores are computed transparently in-session and say so in the output; they are not a fitted model or a deterministic scorer. Unknown `--flags` are rejected instead of absorbed into the topic.
 - **One locale.** The card ships English copy; other active locales fall back to it.
 - **No paywall bypasses, ever.** Unreachable sources are marked blocked, never inferred.
 

@@ -41,11 +41,31 @@ test('slugify + loop args', () => {
   assert.deepEqual(parseLoopArgs(''), { target: '', rounds: 3 })
   assert.ok(loopFollowupPrompt('p', 2, 1).includes('round 2'))
 })
-test('rank args: --limit parsed, the rest rejected loudly', () => {
-  assert.deepEqual(parseRankArgs('scaling laws --limit 5'), { topic: 'scaling laws', limit: 5, unsupported: [] })
-  assert.deepEqual(parseRankArgs('scaling laws'), { topic: 'scaling laws', limit: 20, unsupported: [] })
-  assert.deepEqual(parseRankArgs('scaling laws --synthesize'), { topic: 'scaling laws', limit: 20, unsupported: ['--synthesize'] })
-  assert.deepEqual(parseRankArgs('scaling laws --limit 200'), { topic: 'scaling laws', limit: 100, unsupported: [] })
+test('rank args: every PaperRank flag parsed, unknowns rejected', () => {
+  assert.deepEqual(parseRankArgs('scaling laws --limit 5'), {
+    topic: 'scaling laws', limit: 5, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
+    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
+    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: [],
+  })
+  assert.deepEqual(parseRankArgs('scaling laws'), {
+    topic: 'scaling laws', limit: 20, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
+    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
+    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: [],
+  })
+  const full = parseRankArgs('scaling laws --limit 5 --expand-citations 2 --full-text-top 3 --critique-top 4 --preference-file p.json --reproduction-notes r.json --synthesize --synthesis-top 6 --synthesis-model a/b --output-dir out --json')
+  assert.deepEqual(full, {
+    topic: 'scaling laws', limit: 5, expandCitations: 2, fullTextTop: 3, critiqueTop: 4,
+    preferenceFile: 'p.json', reproductionNotes: 'r.json', synthesize: true, synthesisTop: 6,
+    synthesisModel: 'a/b', outputDir: 'out', json: true, unsupported: [],
+  })
+  assert.deepEqual(parseRankArgs('scaling laws --bogus'), {
+    topic: 'scaling laws', limit: 20, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
+    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
+    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: ['--bogus'],
+  })
+  assert.deepEqual(parseRankArgs('scaling laws --limit 200').limit, 100)
+  // Bare flag values never become the topic.
+  assert.equal(parseRankArgs('--limit 5').topic, '')
 })
 
 // The research-keys namespace registers with row config as its base layer.
@@ -105,11 +125,23 @@ test('one /feynman dispatcher covers every subcommand', async () => {
     assert.equal(m.source.kind, 'plugin')
   }
   assert.equal(new Set(followups.map((m) => m.id)).size, followups.length, 'steering ids collide')
-  // Rank flags: --limit flows through, the rest fail loud instead of joining the topic.
+  // Rank flags: everything flows through, unknowns fail loud instead of joining the topic.
   const ranked = await run('rank scaling laws --limit 5')
   assert.equal(ranked.kind, 'success')
-  assert.ok(followups.at(-1).content[0].text.includes('top 5 candidates'), 'limit reaches the brief')
-  const flagged = await run('rank scaling laws --synthesize')
+  assert.ok(followups.at(-1).content[0].text.includes('up to 5 seed candidates'), 'limit reaches the brief')
+  const flagged = await run('rank scaling laws --bogus')
   assert.equal(flagged.kind, 'error')
-  assert.ok(flagged.text.includes('--synthesize'), 'unsupported flag named')
+  assert.ok(flagged.text.includes('--bogus'), 'unsupported flag named')
+  // Full PaperRank surface lands in one brief.
+  const brief = WORKFLOWS.rank.prompt({
+    topic: 'x', limit: 5, expandCitations: 2, fullTextTop: 3, critiqueTop: 4,
+    preferenceFile: 'p.json', reproductionNotes: 'r.json', synthesize: true, synthesisTop: 6,
+    synthesisModel: 'a/b', outputDir: 'out', json: true,
+  })
+  for (const artifact of ['research-run.json', 'paper-rank.md', 'papers.jsonl', 'scores.jsonl', 'score-audit.md',
+    'rank-sensitivity.json', 'citation-graph.json', 'graph-explorer.html', 'field-map.json', 'rank.provenance.md',
+    'critique.md', 'score-calibration.json', 'reproduction-ledger.json', 'replication-plan.md',
+    'synthesis-packet.json', 'synthesis-prompt.md', 'model-synthesis.md']) {
+    assert.ok(brief.includes(artifact), `brief omits ${artifact}`)
+  }
 })

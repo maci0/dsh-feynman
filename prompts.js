@@ -99,30 +99,58 @@ Workflow: research watch on "${topic}".
 2. Run a baseline sweep (papers, articles, docs, releases, code) and save outputs/${slugify(topic)}-baseline.md: New Papers, New Articles, Relevance Notes.
 3. Schedule follow-ups ONLY with the schedule_create tool when it is visible in this session; otherwise mark scheduling blocked and include the exact refresh prompt to run later. Each follow-up check compares against the baseline so genuinely new material is separable from old findings.`
 
-/** Split `/rank <topic> [--limit N]` trailing flags. Unsupported PaperRank flags are rejected, never absorbed. */
+/** Split `/rank <topic> [options]` flags. All upstream PaperRank flags are parsed; unknown --flags are rejected. */
 export function parseRankArgs(rawInput) {
   const parts = rawInput.trim().split(/\s+/).filter(Boolean)
-  const out = { topic: '', limit: 20, unsupported: [] }
+  const out = {
+    topic: '', limit: 20, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
+    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
+    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: [],
+  }
+  const topicParts = []
   for (let i = 0; i < parts.length; i += 1) {
     const token = parts[i]
-    if (token === '--limit' && /^\d+$/.test(parts[i + 1] ?? '')) {
-      out.limit = Math.min(Math.max(Number(parts[i + 1]), 1), 100)
-      i += 1
-    } else if (token.startsWith('--')) {
-      out.unsupported.push(token)
-    } else {
-      out.topic += (out.topic ? ' ' : '') + token
-    }
+    const next = parts[i + 1]
+    if (token === '--limit' && /^\d+$/.test(next ?? '')) { out.limit = Math.min(Math.max(Number(next), 1), 100); i += 1 }
+    else if (token === '--expand-citations' && /^\d+$/.test(next ?? '')) { out.expandCitations = Math.min(Math.max(Number(next), 0), 5); i += 1 }
+    else if (token === '--full-text-top' && /^\d+$/.test(next ?? '')) { out.fullTextTop = Math.max(Number(next), 0); i += 1 }
+    else if (token === '--critique-top' && /^\d+$/.test(next ?? '')) { out.critiqueTop = Math.max(Number(next), 0); i += 1 }
+    else if (token === '--preference-file' && next !== undefined && !next.startsWith('--')) { out.preferenceFile = next; i += 1 }
+    else if (token === '--reproduction-notes' && next !== undefined && !next.startsWith('--')) { out.reproductionNotes = next; i += 1 }
+    else if (token === '--synthesis-top' && /^\d+$/.test(next ?? '')) { out.synthesisTop = Math.max(Number(next), 1); i += 1 }
+    else if ((token === '--synthesis-model' || token === '--model') && next !== undefined && !next.startsWith('--')) { out.synthesisModel = next; i += 1 }
+    else if (token === '--output-dir' && next !== undefined && !next.startsWith('--')) { out.outputDir = next; i += 1 }
+    else if (token === '--synthesize') { out.synthesize = true }
+    else if (token === '--json') { out.json = true }
+    else if (token.startsWith('--')) { out.unsupported.push(token) }
+    else { topicParts.push(token) }
   }
+  out.topic = topicParts.join(' ')
   return out
 }
 
-const RANK_PROMPT = ({ topic, limit }) => `${TOOL_PRELUDE}
+const RANK_PROMPT = ({ topic, limit = 20, expandCitations = 0, fullTextTop = 0, critiqueTop = 0, preferenceFile = null, reproductionNotes = null, synthesize = false, synthesisTop = 7, synthesisModel = null, outputDir = 'outputs', json = false }) => {
+  const slug = slugify(topic)
+  const dir = (outputDir || 'outputs').replace(/\/+$/, '')
+  const selModel = synthesisModel ?? 'the recommended approved research model'
+  return `${TOOL_PRELUDE}
 
-Workflow: read-first paper ranking for "${topic}" (top ${limit} candidates). Scores are a transparent heuristic computed live in this session, not a fitted model — say so in the output.
-1. Fetch candidates via the OpenAlex API (works, cites, references, abstracts, OA status). Without --preference-file, default weights are a transparent product hypothesis, not fitted preferences — say so in the brief and provenance.
-2. Score each 0-100 on: topical relevance (30%), citation impact (20%), local graph prestige over referenced_works edges (20%, excluded when no local edges exist), citation velocity (10%), methodology screening (10%), reproducibility screening (10%). Keep rubric answers present / partial / missing / not_evaluated for limitations, reproducibility path, experimental details, statistical significance, and compute resources, with source spans (source, field, marker, offsets, section) showing why attention routed to each paper.
-3. Write outputs/${slugify(topic)}-paper-rank.md (ranked brief with per-paper score math and evidence spans), outputs/${slugify(topic)}-rank-sensitivity.md (stable vs volatile under balanced, influence-heavy, method/reproducibility-heavy, frontier-heavy, and topic-heavy weightings), and outputs/${slugify(topic)}-rank.provenance.md (source accounting, formula, verification caveats). Keep bibliometric influence separate from quality judgments; record unverified checks as gaps, not scores. Without completed reproduction notes, record that none were supplied.`
+Workflow: PaperRank read-first ranking for "${topic}". Scores are a transparent heuristic computed live in this session, not a fitted model — say so in the output.
+1. Fetch up to ${limit} seed candidates via the OpenAlex API (works, cites, references, abstracts, URLs, OA status).${expandCitations > 0 ? ` Expand the citation neighborhood first: add up to ${expandCitations} outgoing cited works (referenced_works) and incoming citing works (cites:<work>) per seed before scoring graph prestige; expansion papers are graph context only — ranked outputs still score the seeds.` : ' Build the local graph from the seed result set only.'}
+2. Score each seed 0-100 as a weighted average over available components (ReadFirstScore): topical relevance 30%, citation impact 20%, graph prestige 20% (PageRank-style over referenced_works edges; when the graph has no local citation edges mark prestige unavailable and exclude it instead of guessing), citation velocity 10% (separate — lifetime counts favor older papers), methodology quality 10%, reproducibility 10%. Methodology and reproducibility are deterministic screening signals over metadata, abstract text, URLs${fullTextTop > 0 ? ', and enriched full text' : ''}. Keep bibliometric influence separate from quality judgments; record unverified checks as gaps, not scores.
+${fullTextTop > 0 ? `3. Full-text enrichment: fetch source-specific full text for the top ${fullTextTop} candidates with a fetchable access route, extract canonical paper sections, attach section-specific paper-body spans, answer checklist rubrics (present / partial / missing / not_evaluated for limitations, reproducibility path, experimental details, statistical significance, compute resources), and rescore. Never write raw full text to papers JSONL — store enrichment status, access candidates, fullTextLength, and section boundaries; score evidence keeps matched spans (source, field, marker, character offsets, section, surrounding text).\n` : ''}Write the default artifacts under ${dir}/ (topic slug ${slug}):
+- ${slug}-research-run.json — typed run manifest: jobs, sources, papers, tools, artifacts, verification state, constraints, next actions (the machine-readable spine; attach follow-up work here, don't scrape report files).
+- ${slug}-paper-rank.md — readable ranked brief.
+- ${slug}-papers.jsonl — normalized paper records.
+- ${slug}-scores.jsonl — component scores, evidence, matched source spans.
+- ${slug}-score-audit.md — per-paper score math, normalized contribution weights, field roles, evidence gaps, source excerpts.
+- ${slug}-rank-sensitivity.json — rerun the same signals under balanced, influence-heavy, method/reproducibility-heavy, frontier-heavy, and topic-heavy profiles (profile ranks, score range, rank range, stability label; stable = robust, volatile = inspect manually).
+- ${slug}-citation-graph.json — seed/citation-neighborhood graph and PageRank-style values.
+- ${slug}-graph-explorer.html — interactive explorer (search/filter seed and expanded nodes, local citation links, score summaries, field roles, critique judgments, source URLs; no raw full-text bodies).
+- ${slug}-field-map.json — OpenAlex topic/concept clusters with roles foundation, frontier, bridge, methodology-anchor, reproducibility-anchor (local navigation labels, not a global taxonomy).
+- ${slug}-rank.provenance.md — source accounting, formula, verification caveats.
+${critiqueTop > 0 ? `Critique: write ${slug}-critique.md with deterministic research-critique strengths, concerns, and follow-up questions for the top ${critiqueTop} papers, grounded in PaperRank evidence (component scores, warnings, source spans, rubric answers) — a triage aid, not an external review decision.\n` : ''}${preferenceFile ? `Calibration: read ${preferenceFile} (rankedPaperIds + pairwise preferences), evaluate whether each preferred paper ranks ahead, report default/profile agreement rates, and write ${slug}-score-calibration.json, ${slug}-calibration-template.json, ${slug}-calibration-guide.md. IDs outside the run count as ignored, never silently dropped.\n` : 'Calibration: no preference file supplied — record that default weights are a transparent product hypothesis, not fitted preferences, and write no calibration files.\n'}${reproductionNotes ? `Reproduction: read ${reproductionNotes} (statuses reproduced / partially_reproduced / failed / not_runnable plus central claim, result, metric, expected/observed values, discrepancy, code/data/environment hints, commands, check date) and write ${slug}-reproduction-ledger.json, ${slug}-reproduction-notes-template.json, ${slug}-replication-plan.md. Notes outside the ranked seed set count as ignored. The ledger records externally supplied notes; it does not execute experiments or embed raw full text.\n` : 'Reproduction: no completed reproduction notes supplied — record that inside the brief and provenance, and write no reproduction files.\n'}${synthesize ? `Synthesis: write ${slug}-synthesis-packet.json and ${slug}-synthesis-prompt.md (ranks, score explanations, field roles, critique summaries, rubric gaps, span excerpts, references for the top ${synthesisTop} papers; omit raw full-text bodies), then ask ${selModel} to write ${slug}-model-synthesis.md from that packet. CLI output, synthesis, JSON summary, and provenance record the actual model plus whether it came from the recommendation path or an explicit override.\n` : ''}${json ? 'Also print a compact JSON summary after writing artifacts.\n' : ''}`
+}
 
 const PAPER_PROMPT = (id) => `${TOOL_PRELUDE}
 
@@ -209,7 +237,7 @@ export const WORKFLOWS = {
   },
   rank: {
     description: 'Rank papers read-first with transparent relevance/citation/method scoring',
-    hint: '<topic> [--limit N]',
+    hint: '<topic> [--limit N] [--expand-citations N] [--full-text-top N] [--critique-top N] [--preference-file F] [--reproduction-notes F] [--synthesize [--synthesis-top N] [--synthesis-model P/M]] [--output-dir D] [--json]',
     required: true,
     prompt: RANK_PROMPT,
   },
