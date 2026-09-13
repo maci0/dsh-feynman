@@ -19,6 +19,11 @@ export function stripArxivPrefix(text) {
   return (stripped.trim() ? stripped : text).trim()
 }
 
+/** Strip every `arxiv:` prefix inside a mixed string (ID lists like `arxiv:1 arxiv:2`), keeping other words intact. */
+export function stripArxivPrefixes(text) {
+  return text.replace(/arxiv:\s*/gi, '').trim() || text.trim()
+}
+
 /** Split `/review-loop <target> [rounds]` trailing round count. */
 export function parseLoopArgs(rawInput) {
   const match = /^(.*?)\s+(\d+)$/.exec(rawInput.trim())
@@ -89,17 +94,23 @@ Workflow: ML training recipe for "${task}".
 2. Link each reported result to the recipe that produced it: dataset (+split/schema), method, hyperparameters, compute, benchmark, code path, verification status. A paper without usable data/code/config detail is a risk, not a runnable recipe. Label checks verified / unverified / blocked / inferred; never call a recipe state-of-the-art, replicated, or production-ready without supporting checks.
 3. Write outputs/${slugify(task)}-recipe.md: Recommendation (one recipe first + why), Ranked Recipe Table, Dataset Notes, Implementation Plan (minimal steps), Known Gaps, Sources (every URL); plus outputs/${slugify(task)}-recipe.provenance.md with source accounting and verification caveats.`
 
-const COMPARE_PROMPT = (input) => `${TOOL_PRELUDE}
+const COMPARE_PROMPT = (rawInput) => {
+  const input = stripArxivPrefixes(rawInput)
+  return `${TOOL_PRELUDE}
 
 Workflow: source comparison for "${input}" (topic — find the most relevant contrasting sources — or explicit paper IDs/files — use directly).
 1. Analyze each source independently: claims, results, methodology, limitations.
 2. Align claims across sources: agreement, genuine disagreement, non-overlapping scope. Note when apparent disagreement may come from different protocols rather than conflicting results.
 3. Write outputs/${slugify(input)}-compare.md: Source Summaries (one paragraph each), Agreement Matrix, Disagreement Matrix (with divergence analysis), Methodology Differences, Synthesis (well-supported vs contested).`
+}
 
-const DRAFT_PROMPT = (input) => `${TOOL_PRELUDE}
+const DRAFT_PROMPT = (rawInput) => {
+  const input = stripArxivPrefixes(rawInput)
+  return `${TOOL_PRELUDE}
 
 Workflow: academic draft on "${input}". If the input is --from-session, skip research and write from this session's vetted findings; otherwise gather sources first.
 Write outputs/${slugify(input)}-draft.md following academic structure: Abstract, Introduction (motivation, context, contributions), Body Sections, Discussion, Limitations (honest), References (only works cited, consistent format). Inline-cite factual claims; mark anything unsupported as an explicit TODO/gap — never invent results, figures, tables, or benchmark numbers.`
+}
 
 const AUTORESEARCH_PROMPT = (idea) => `${TOOL_PRELUDE}
 

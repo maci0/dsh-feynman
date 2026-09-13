@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
+import { slugify, stripArxivPrefix, stripArxivPrefixes, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
 import { apply } from './index.js'
 
 // Every Feynman workflow slash command is mapped.
@@ -48,6 +48,12 @@ test('arxiv: prefix normalizes to the bare ID everywhere it matters', () => {
   assert.ok(!prefixed.includes('arxiv:'), 'prefix leaks into the brief')
   assert.equal(WORKFLOWS.audit.prompt('arxiv:2401.12345'), WORKFLOWS.audit.prompt('2401.12345'))
   assert.equal(WORKFLOWS.paper.prompt({ id: 'arxiv:2401.12345' }), WORKFLOWS.paper.prompt({ id: '2401.12345' }))
+})
+test('arxiv: prefixes normalize inside ID lists, flags survive', () => {
+  assert.equal(stripArxivPrefixes('arxiv:2401.12345 arxiv:2402.67890'), '2401.12345 2402.67890')
+  assert.equal(stripArxivPrefixes('scaling laws'), 'scaling laws')
+  assert.equal(WORKFLOWS.compare.prompt('arxiv:2401.12345 arxiv:2402.67890'), WORKFLOWS.compare.prompt('2401.12345 2402.67890'))
+  assert.ok(WORKFLOWS.draft.prompt('--from-session').includes('--from-session'), 'draft flag survives')
 })
 test('review names its plan and evidence artifacts', () => {
   const brief = WORKFLOWS.review.prompt('2401.12345')
