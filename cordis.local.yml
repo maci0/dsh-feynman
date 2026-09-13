@@ -1,0 +1,10 @@
+# Feynman-style research workflow commands for DeepSeek Harness.
+# Local-dev overlay: absolute path (per first-plugin tutorial). For
+# `dsh plugin add`, the installed bundle's own cordis.patch.yml uses the
+# package name instead.
+- insert:
+    - id: feynman-commands
+      name: '/home/maci/Desktop/dsh-researcher/index.js'
+      config:
+        hfTokenEnv: HF_TOKEN
+        alphaxivTokenEnv: ALPHAXIV_API_KEY
