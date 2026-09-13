@@ -13,6 +13,12 @@ export function slugify(text) {
   return slug || 'untitled'
 }
 
+/** Strip a leading `arxiv:` vendor prefix to the bare ID, so both spellings share slugs and API calls. */
+export function stripArxivPrefix(text) {
+  const stripped = text.replace(/^arxiv:\s*/i, '')
+  return (stripped.trim() ? stripped : text).trim()
+}
+
 /** Split `/review-loop <target> [rounds]` trailing round count. */
 export function parseLoopArgs(rawInput) {
   const match = /^(.*?)\s+(\d+)$/.exec(rawInput.trim())
@@ -43,27 +49,36 @@ Workflow: structured literature review on "${topic}". If the input names a lab, 
 2. Extract claims, results, methodology per paper.
 3. Write outputs/${slugify(topic)}-lit-review.md: Scope and Methodology, Consensus (with citations), Disagreements, Open Questions, Timeline, References. For biomedical topics, frame the question as PICO/PICOS (population, intervention/exposure, comparator, outcomes, study design) or state the study type directly; group evidence by study design (guidelines, systematic reviews, RCTs, cohorts, case reports, preprints, mechanistic), report effect sizes only when source-backed; never ask for or paste protected health information — use de-identified or fictionalized questions; state that the output is research synthesis, not medical advice.`
 
-const REVIEW_PROMPT = (artifact) => `${TOOL_PRELUDE}
+const REVIEW_PROMPT = (rawArtifact) => {
+  const artifact = stripArxivPrefix(rawArtifact)
+  return `${TOOL_PRELUDE}
 
 Workflow: internal research review of "${artifact}" (arXiv ID, URL, or local file; fetch or read it first). This is a pre-trust critique, not a publication decision.
 1. Record evidence notes in outputs/.drafts/${slugify(artifact)}-review-evidence.md as you go.
 2. Evaluate: claims vs evidence, methodology soundness and confounds, experimental design (baselines, ablations), reproducibility, writing clarity, completeness (limitations, related work).
 3. Write exactly one final review to outputs/${slugify(artifact)}-review.md with severity-graded findings — critical (undermines validity), major (should fix), minor (suggestion), nit (style) — each with a confidence score: Summary Assessment (revision priority), Strengths, Critical Issues, Major Issues, Minor Issues, Inline Annotations tied to document sections. Flag unverifiable claims as needing evidence. If the artifact cannot be parsed, still write the review and mark affected checks blocked.`
+}
 
-const AUDIT_PROMPT = (item) => `${TOOL_PRELUDE}
+const AUDIT_PROMPT = (rawItem) => {
+  const item = stripArxivPrefix(rawItem)
+  return `${TOOL_PRELUDE}
 
 Workflow: code audit of "${item}" (arXiv ID or repo URL plus --paper ID; when given only an arXiv ID, find the repo through paper links, Papers With Code, or GitHub search).
 Pass 1 (researcher): extract concrete claims from the paper — hyperparameters, architecture, training procedure, dataset splits, metrics, reported results — each tagged with its paper location.
 Pass 2 (verifier): find each claim's implementation (configs, training scripts, model definitions, eval code). Document mismatches with paper location plus exact file paths and line numbers; list claims with no corresponding code.
 Also flag reproducibility risks: missing seeds, unpinned deps, hardcoded paths, missing environment specs.
 Write outputs/${slugify(item)}-audit.md: Match Summary (% claims matched), Confirmed Claims, Mismatches, Missing Implementations, Reproducibility Risks.`
+}
 
-const REPLICATE_PROMPT = (target) => `${TOOL_PRELUDE}
+const REPLICATE_PROMPT = (rawTarget) => {
+  const target = stripArxivPrefix(rawTarget)
+  return `${TOOL_PRELUDE}
 
 Workflow: replication plan for "${target}" (paper or specific claim). Plan only: do NOT execute anything until the user chooses an environment (local, container, cloud, or plan-only).
 1. Extract stated details: architecture, hyperparameters, schedule, data prep, eval protocol, hardware. Cross-reference linked/supplied code.
 2. For ML-heavy targets add a recipe pass linking each claimed result to dataset, method, hyperparameters, compute, metric, and code path (verify Hugging Face dataset schema/splits via the huggingface.co/api dataset endpoints when relevant).
 3. Write outputs/${slugify(target)}-replication-plan.md: Requirements (hardware/software/data/compute estimate), Recipe Extraction, Step-by-step Plan, Underspecified Details (gap + assumption + divergence risk each), Risk Assessment, Success Criteria (what counts as replicated). Label a result replicated only when the planned checks actually pass.`
+}
 
 const RECIPE_PROMPT = (task) => `${TOOL_PRELUDE}
 
@@ -167,10 +182,13 @@ export function parsePaperArgs(rawInput) {
   return out
 }
 
-const PAPER_PROMPT = ({ id, fetchFullText = false, json = false }) => `${TOOL_PRELUDE}
+const PAPER_PROMPT = ({ id: rawId, fetchFullText = false, json = false }) => {
+  const id = stripArxivPrefix(rawId)
+  return `${TOOL_PRELUDE}
 
 Workflow: paper access resolution for "${id}" (DOI, PubMed ID, arXiv ID, or title).
 Resolve access candidates via OpenAlex, DOI, PubMed/PMCID, arXiv, and Europe PMC; for a title, search OpenAlex first. Report candidates without bypassing paywalls.${fetchFullText ? ' With --fetch-full-text, fetch text only through source-sanctioned APIs and write bounded artifacts (summary + access record), never raw full-text dumps.' : ' No full-text fetch requested — access candidates only.'} Write outputs/${slugify(id)}-paper-access.md and outputs/${slugify(id)}-paper-access.json.${json ? ' Also print a compact JSON access summary after writing artifacts.' : ''}`
+}
 
 const PREVIEW_PROMPT = (target) => `${TOOL_PRELUDE}
 

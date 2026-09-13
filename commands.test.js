@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slugify, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
+import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
 import { apply } from './index.js'
 
 // Every Feynman workflow slash command is mapped.
@@ -36,6 +36,18 @@ test('composed brief names key refs, nothing external', () => {
   }
   const full = buildPrompt('recipe', 'finetune bert', { hfTokenEnv: 'MY_HF', alphaxivTokenEnv: 'MY_AX' }).toLowerCase()
   assert.ok(full.includes('my_hf') && full.includes('my_ax'), 'brief misses live key refs')
+})
+test('arxiv: prefix normalizes to the bare ID everywhere it matters', () => {
+  assert.equal(stripArxivPrefix('arxiv:2401.12345'), '2401.12345')
+  assert.equal(stripArxivPrefix('arXiv:2401.12345'), '2401.12345')
+  assert.equal(stripArxivPrefix('2401.12345'), '2401.12345')
+  assert.equal(stripArxivPrefix('attention is all you need'), 'attention is all you need')
+  const prefixed = WORKFLOWS.review.prompt('arxiv:2401.12345')
+  const bare = WORKFLOWS.review.prompt('2401.12345')
+  assert.equal(prefixed, bare)
+  assert.ok(!prefixed.includes('arxiv:'), 'prefix leaks into the brief')
+  assert.equal(WORKFLOWS.audit.prompt('arxiv:2401.12345'), WORKFLOWS.audit.prompt('2401.12345'))
+  assert.equal(WORKFLOWS.paper.prompt({ id: 'arxiv:2401.12345' }), WORKFLOWS.paper.prompt({ id: '2401.12345' }))
 })
 test('slugify + loop args', () => {
   assert.equal(slugify('Scaling Laws! 2024'), 'scaling-laws-2024')
