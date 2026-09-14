@@ -193,3 +193,35 @@ test('one /feynman dispatcher covers every subcommand', async () => {
   assert.ok(status.text.includes('setup summary'), 'status summarizes setup')
   assert.equal(followups.length, before, 'diagnostics queue no model turn')
 })
+
+test('review-loop driver advances every round through the agents registry', async () => {
+  const { apply } = await import('./index.js')
+  const followups = []
+  const session = { id: 'loop-session' }
+  const agent = { id: 'loop-session', session, followup: (m) => followups.push(m), inject: () => {} }
+  let handler
+  let turnListener
+  const registry = new Map([['loop-session', agent]])
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: (event, fn) => { if (event === 'session/event') turnListener = fn; return () => {} },
+    get: (key) => key === 'agents' ? { get: (id) => registry.get(id) } : undefined,
+  }, {})
+  const run = (rawInput) => handler({ rawInput, agent, attachments: [] })
+  const started = await run('review-loop paper.pdf 3')
+  assert.equal(started.kind, 'success')
+  assert.equal(followups.length, 1, 'round 1 queued at dispatch')
+  const endTurn = (reason = { kind: 'completed' }) => turnListener(session, { type: 'turn/end', data: { reason } })
+  endTurn()
+  assert.equal(followups.length, 2, 'round 2 queued after turn 1')
+  assert.ok(followups[1].content[0].text.includes('round 2'), 'round 2 brief')
+  endTurn({ kind: 'error', error: { message: 'x', code: 'UNKNOWN' } })
+  assert.equal(followups.length, 2, 'non-completed turn does not advance')
+  endTurn()
+  assert.equal(followups.length, 3, 'round 3 queued after turn 2')
+  endTurn()
+  assert.equal(followups.length, 3, 'loop ends after the final round')
+  const stopped = await run('review-loop stop')
+  assert.ok(stopped.text.includes('No review loop'), 'finished loop reports absent')
+})

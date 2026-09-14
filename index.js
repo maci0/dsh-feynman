@@ -13,9 +13,9 @@ import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArg
 import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'feynman'
-// Only commands is required; every other seam is read through service(),
-// which returns undefined when absent, so the bundle loads on minimal profiles.
-export const inject = ['commands']
+// The review-loop driver resolves agents from the registry on turn/end;
+// without 'agents' the lookup misses and rounds after the first never queue.
+export const inject = ['commands', 'agents']
 
 /** Settings namespace the browser card edits: key refs only, never secrets. */
 export const RESEARCH_KEYS_NAMESPACE = 'research-keys'
