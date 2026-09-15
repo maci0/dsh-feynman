@@ -1,7 +1,7 @@
 {
   "name": "dsh-feynman",
-  "version": "0.9.1",
-  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, …) for DeepSeek Harness",
+  "version": "0.10.0",
+  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, \u2026) for DeepSeek Harness",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -20,9 +20,6 @@
   },
   "license": "MIT",
   "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
     "client": {
       "platform": "web",
       "inject": [

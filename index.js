@@ -1,13 +1,14 @@
 /**
  * Research workflow commands for DeepSeek Harness.
  *
- * One out-of-tree bundle: 14 workflow slash commands (deepresearch, lit,
- * review, review-loop, audit, replicate, recipe, compare, draft, autoresearch,
- * watch, rank, paper, preview) that steer the model with workflow briefs,
- * plus 11 session/utility commands (log, jobs, help, feynman-model, init,
- * outputs, btw, thinking, search, web-results, keys).
+ * 14 workflow slash commands (deepresearch, lit, review, review-loop, audit,
+ * replicate, recipe, compare, draft, autoresearch, watch, rank, paper,
+ * preview) that steer the model with workflow briefs, plus session/utility
+ * commands (log, jobs, help, feynman-model, init, outputs, btw, thinking,
+ * search, web-results, keys).
  *
- * Load via `--patch cordis.patch.yml` or `dsh plugin add ./dsh-feynman`.
+ * Load via a row in ~/.dsh/profiles/<profile>/cordis.patch.yml, or
+ * `--patch cordis.local.yml`.
  */
 import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, slugify } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'

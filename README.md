@@ -1,6 +1,6 @@
 # dsh-feynman
 
-**Research workflow slash commands for DeepSeek Harness, as one out-of-tree bundle.**
+**Research workflow slash commands for DeepSeek Harness.**
 
 Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (see [attribution](#attribution-and-license)). "What are the current approaches to mechanistic interpretability?" → `/feynman deepresearch`, and a brief with inline citations lands in `outputs/`.
 
@@ -57,15 +57,24 @@ The AlphaXiv key is spent via `web_fetch` against the AlphaXiv API (paper search
 ## Install
 
 ```sh
-# straight from GitHub
-dsh plugin --profile web add github:maci0/dsh-feynman
-# or from a local checkout
 dsh plugin --profile web add /path/to/dsh-feynman
+# pnpm will warn "declares no dsh.bundle — installed as a plain dependency". That is the point.
 ```
 
-That is the whole install. The package declares `dsh.bundle`, so `dsh plugin` adds it to the profile's `dsh.profile.bundles`, and the boot reads the plugin row from this package's own `cordis.patch.yml`. **Restart the profile**: a bundle list is composed at boot, so a running profile does not pick it up from a live patch reload.
+Then paste this into `~/.dsh/profiles/web/cordis.patch.yml` (or merge into an existing `- insert:` list):
 
-Local overlay for development (no install; absolute path required):
+```yaml
+- insert:
+    - id: feynman
+      name: dsh-feynman
+      config:
+        hfTokenEnv: HF_TOKEN
+        alphaxivTokenEnv: ALPHAXIV_API_KEY
+```
+
+Saving that file remounts the plugin. No profile restart. `dsh.profile.bundles` is frozen at boot — do not put this package there, or `insert` will register it twice.
+
+Local overlay for a one-shot boot (absolute path required):
 
 ```sh
 pnpm dsh web --patch /path/to/dsh-feynman/cordis.local.yml
@@ -73,7 +82,7 @@ pnpm dsh web --patch /path/to/dsh-feynman/cordis.local.yml
 
 ### Verify
 
-After a restart of the profile and a **page refresh** of the Web client:
+After the profile patch save (and a **page refresh** of the Web client the first time):
 
 - `/feynman help` lists the 27 subcommands;
 - `/feynman keys` reports both key states;
@@ -96,7 +105,7 @@ Invalid configuration fails while the plugin loads rather than silently pointing
 index.js          host plugin: /feynman dispatcher, review-loop driver, research-keys namespace
 prompts.js        pure workflow catalog (no harness imports; unit-tested with plain node)
 lib/client.js     browser half: the Research Keys card (loader factory format)
-cordis.patch.yml  the bundle layer: the one plugin row the boot mounts
+cordis.patch.yml  the Loader row to paste into the profile's live-watched patch
 cordis.local.yml  dev overlay: same row with an absolute path, for --patch
 commands.test.js  host tests (prompts + registration + handler results)
 client.test.js    card tests (registration, ready-gating, badges, no literal leaks)
@@ -117,11 +126,11 @@ npm test          # node --test commands.test.js client.test.js (no build step)
 dsh plugin --profile web remove dsh-feynman
 ```
 
-then restart the profile. The same reconcile pass that added the package to `dsh.profile.bundles` drops it again, so there is no row left behind.
+and delete the `id: feynman` row from `~/.dsh/profiles/<profile>/cordis.patch.yml`. Saving unmounts it.
 
 ## Limits
 
-- **A plugin source edit needs a profile restart.** The Loader imports plugin modules with ESM semantics, so a live patch reload re-runs `apply` from the module already in memory.
+- **Host source edits remount when `id: hmr` is enabled** with this checkout in `config.root`. Without that, a live patch reload re-runs `apply` from the ESM module already in memory.
 - **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package, so the host half can stay up.
 - **Review-loop state is process-local.** Loop rounds live in a module-level map keyed by session id; a profile restart forgets them. Durable loop state arrives when it needs to survive restarts.
 - **Ranking is a live heuristic.** `/rank` scores are computed transparently in-session and say so in the output; they are not a fitted model or a deterministic scorer. Unknown `--flags` are rejected instead of absorbed into the topic.

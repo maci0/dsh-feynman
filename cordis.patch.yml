@@ -1,8 +1,10 @@
+# Row to paste into ~/.dsh/profiles/<profile>/cordis.patch.yml.
+# That file is live-watched; dsh.profile.bundles is frozen at boot.
+# Do not also list this package in dsh.profile.bundles: insert does not
+# dedupe ids, two rows would register the plugin twice.
 - insert:
     - id: feynman
       name: dsh-feynman
-      # Optional: rename the env refs the prompts point at. Defaults shown.
-      # Secrets themselves are never config — export them or use /keys set.
       config:
         hfTokenEnv: HF_TOKEN
         alphaxivTokenEnv: ALPHAXIV_API_KEY
