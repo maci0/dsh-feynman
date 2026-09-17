@@ -13,7 +13,6 @@
 import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm/message'
-import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 
 export const name = 'feynman'
 // The review-loop driver resolves agents from the registry on turn/end;
@@ -21,7 +20,7 @@ export const name = 'feynman'
 export const inject = ['commands', 'agents']
 
 /** Settings namespace the browser card edits: key refs only, never secrets. */
-export const RESEARCH_KEYS_NAMESPACE = 'research-keys'
+const RESEARCH_KEYS_NAMESPACE = 'research-keys'
 
 /**
  * Deployment tunables plus the two env refs. The credential refs are also the
@@ -32,18 +31,10 @@ export const RESEARCH_KEYS_NAMESPACE = 'research-keys'
 export const Config = Schema.object({
   hfTokenEnv: Schema.string().role('credential-ref').default('HF_TOKEN'),
   alphaxivTokenEnv: Schema.string().role('credential-ref').default('ALPHAXIV_API_KEY'),
-  loopDefaultRounds: Schema.natural().default(3),
-  loopMaxRounds: Schema.natural().default(10),
-  rankLimitDefault: Schema.natural().default(20),
-  rankLimitCap: Schema.natural().default(100),
-})
-
-/** Default refs; row config is the base layer and the fallback. */
-const DEFAULT_KEY_REFS = Object.freeze({ hfTokenEnv: 'HF_TOKEN', alphaxivTokenEnv: 'ALPHAXIV_API_KEY' })
-
-/** Default loop/rank bounds; the same shape `normalizeConfig` validates. */
-const DEFAULT_TUNABLES = Object.freeze({
-  defaultRounds: 3, maxRounds: 10, limitDefault: 20, limitCap: 100,
+  loopDefaultRounds: Schema.natural().min(1).default(3),
+  loopMaxRounds: Schema.natural().min(1).default(10),
+  rankLimitDefault: Schema.natural().min(1).default(20),
+  rankLimitCap: Schema.natural().min(1).default(100),
 })
 
 // --- key configuration (Hugging Face + AlphaXiv) ---
@@ -60,40 +51,26 @@ const REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
  * shared by every instance, so a patch reload would re-run apply on top of the
  * previous instance's loops.
  */
-function createState(config) {
-  const { refs, tunables } = normalizeConfig(config, DEFAULT_KEY_REFS)
-  return {
-    refs,
-    tunables,
-    // Base layer for the settings namespace: the resolved refs AND the resolved
-    // bounds, so the card never advertises a value the plugin does not use.
-    entry: {
-      ...refs,
-      loopDefaultRounds: tunables.defaultRounds,
-      loopMaxRounds: tunables.maxRounds,
-      rankLimitDefault: tunables.limitDefault,
-      rankLimitCap: tunables.limitCap,
-    },
-    source: () => refs,
-    loops: new Map(),
-  }
-}
-
-function normalizeConfig(config, fallback) {
-  const refs = {
-    hfTokenEnv: config.hfTokenEnv ?? fallback.hfTokenEnv,
-    alphaxivTokenEnv: config.alphaxivTokenEnv ?? fallback.alphaxivTokenEnv,
-  }
+function createState(rawConfig) {
+  const config = resolveConfig(rawConfig)
+  const refs = { hfTokenEnv: config.hfTokenEnv, alphaxivTokenEnv: config.alphaxivTokenEnv }
   for (const [field, value] of Object.entries(refs)) {
-    if (typeof value !== 'string' || !REF_PATTERN.test(value)) {
+    if (!REF_PATTERN.test(value)) {
       throw new Error(`[feynman] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
     }
   }
   const tunables = {
-    defaultRounds: positive(config.loopDefaultRounds, DEFAULT_TUNABLES.defaultRounds, 'loopDefaultRounds'),
-    maxRounds: positive(config.loopMaxRounds, DEFAULT_TUNABLES.maxRounds, 'loopMaxRounds'),
-    limitDefault: positive(config.rankLimitDefault, DEFAULT_TUNABLES.limitDefault, 'rankLimitDefault'),
-    limitCap: positive(config.rankLimitCap, DEFAULT_TUNABLES.limitCap, 'rankLimitCap'),
+    defaultRounds: config.loopDefaultRounds,
+    maxRounds: config.loopMaxRounds,
+    limitDefault: config.rankLimitDefault,
+    limitCap: config.rankLimitCap,
+  }
+  // `min`/`max` cannot see NaN — every comparison against it is false — so the
+  // numeric fields get one explicit finiteness check the schema cannot express.
+  for (const [field, value] of Object.entries(tunables)) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`[feynman] ${field} must be a finite number; got ${String(value)}`)
+    }
   }
   if (tunables.defaultRounds > tunables.maxRounds) {
     throw new Error(`[feynman] loopDefaultRounds (${tunables.defaultRounds}) exceeds loopMaxRounds (${tunables.maxRounds})`)
@@ -101,16 +78,28 @@ function normalizeConfig(config, fallback) {
   if (tunables.limitDefault > tunables.limitCap) {
     throw new Error(`[feynman] rankLimitDefault (${tunables.limitDefault}) exceeds rankLimitCap (${tunables.limitCap})`)
   }
-  return { refs, tunables }
+  return {
+    refs,
+    tunables,
+    // Base layer for the settings namespace: the resolved config, so the card
+    // never advertises a value the plugin does not use.
+    entry: config,
+    source: () => refs,
+    loops: new Map(),
+  }
 }
 
-/** A configured bound must be a positive integer; absent falls back to the default. */
-function positive(value, fallback, field) {
-  const resolved = value ?? fallback
-  if (!Number.isInteger(resolved) || resolved < 1) {
-    throw new Error(`[feynman] ${field} must be a positive integer; got ${JSON.stringify(value)}`)
+/**
+ * Row config through the exported schema: defaults applied, out-of-range values
+ * rejected. Cordis validates the same schema before apply; this is the
+ * direct-apply and shared-code path, and it owns the plugin-facing message.
+ */
+function resolveConfig(rawConfig) {
+  try {
+    return Config(rawConfig)
+  } catch (error) {
+    throw new Error(`[feynman] ${error instanceof Error ? error.message : String(error)}`)
   }
-  return resolved
 }
 
 /** Read live refs from the settings scope when valid, else the row fallback. */
@@ -151,17 +140,24 @@ async function keyState(ctx, ref) {
   return process.env[ref] ? 'set (environment)' : 'unset'
 }
 
+/** The two key-state lines shared by /keys (no args) and /status. */
+async function keySummary(ctx, refs) {
+  const [hf, ax] = await Promise.all([keyState(ctx, refs.hfTokenEnv), keyState(ctx, refs.alphaxivTokenEnv)])
+  return [
+    `Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
+    `AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
+  ]
+}
+
 async function keysHandler(invocation, ctx, state) {
   const args = invocation.rawInput.trim().split(/\s+/).filter(Boolean)
   const creds = service(ctx, 'credentials')
   const refs = liveRefs(state)
   if (args.length === 0) {
-    const [hf, ax] = await Promise.all([keyState(ctx, refs.hfTokenEnv), keyState(ctx, refs.alphaxivTokenEnv)])
     return {
       kind: 'success',
       text: [
-        `Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
-        `AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
+        ...await keySummary(ctx, refs),
         `Config card: ${cardState(ctx)}`,
         '',
         `Usage: /feynman keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
@@ -189,16 +185,6 @@ async function keysHandler(invocation, ctx, state) {
 
 function err(text) { return { kind: 'error', text } }
 
-/** Usage line for one subcommand. */
-function subUsage(sub) {
-  const workflow = WORKFLOWS[sub]
-  if (workflow) return `Usage: /feynman ${sub} ${workflow.hint}`
-  if (sub === 'btw') return 'Usage: /feynman btw <question>'
-  if (sub === 'search') return 'Usage: /feynman search <query>'
-  if (sub === 'keys') return 'Usage: /feynman keys | /feynman keys set <hf|alphaxiv> <value>'
-  return `Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}>`
-}
-
 /**
  * Single dispatcher behind `/feynman`. The first token names a workflow or
  * session subcommand; the rest is that subcommand's raw input. Attachments
@@ -209,53 +195,45 @@ function researchHandler(invocation, ctx, sessionHandlers, state) {
   const name = sub.toLowerCase()
   if (!name) return helpHandler({ ...invocation, rawInput: '' })
   const subInvocation = { ...invocation, rawInput: rest.join(' ') }
-  if (WORKFLOWS[name]) return workflowHandler(name, state)(subInvocation)
+  if (WORKFLOWS[name]) return workflowHandler(name, subInvocation, state)
   const session = sessionHandlers[name]
   if (session) return session(subInvocation, ctx)
-  return err(`${subUsage('')} — unknown subcommand "${sub}".`)
+  return err(`Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}> — unknown subcommand "${sub}".`)
 }
 
-function workflowHandler(kind, state) {
+/** Flag-parsing workflows: the parsed object replaces the raw argument text. */
+const PARSERS = { rank: parseRankArgs, paper: parsePaperArgs }
+
+function workflowHandler(kind, invocation, state) {
   const spec = WORKFLOWS[kind]
+  const args = invocation.rawInput.trim()
   const usage = `Usage: /feynman ${kind} ${spec.hint}`
-  return (invocation) => {
-    const args = invocation.rawInput.trim()
-    if (spec.required && !args) return err(usage)
-    if (kind === 'review-loop' && args.toLowerCase() === 'stop') {
-      const loop = state.loops.get(invocation.agent.session.id)
-      if (!loop) return { kind: 'success', text: 'No review loop is running.' }
-      state.loops.delete(invocation.agent.session.id)
-      return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
-    }
-    // Queue the workflow brief as the agent's next turn; the followup IS the work.
-    // Rank and paper parse every flag; unknown --flags are rejected, never absorbed into the topic.
-    if (kind === 'rank') {
-      const parsed = parseRankArgs(args, state.tunables)
-      if (!parsed.topic) return err(usage)
-      if (parsed.unsupported.length > 0) {
-        return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman rank ${WORKFLOWS.rank.hint}\`.`)
-      }
-      const body = buildPrompt(kind, parsed, liveRefs(state))
-      invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
-      return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in ${parsed.outputDir}/.` }
-    }
-    if (kind === 'paper') {
-      const parsed = parsePaperArgs(args)
-      if (!parsed.id) return err(usage)
-      if (parsed.unsupported.length > 0) {
-        return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman paper ${WORKFLOWS.paper.hint}\`.`)
-      }
-      const body = buildPrompt(kind, parsed, liveRefs(state))
-      invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
-      return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
-    }
-    const body = kind === 'review-loop'
-      ? reviewLoopPrompt(invocation, args, state)
-      : buildPrompt(kind, args, liveRefs(state))
-    if (body === null) return err(usage)
-    invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
-    return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
+  if (!spec.optional && !args) return err(usage)
+  if (kind === 'review-loop' && args.toLowerCase() === 'stop') {
+    const loop = state.loops.get(invocation.agent.session.id)
+    if (!loop) return { kind: 'success', text: 'No review loop is running.' }
+    state.loops.delete(invocation.agent.session.id)
+    return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
   }
+  // Queue the workflow brief as the agent's next turn; the followup IS the work.
+  // Rank and paper parse every flag; unknown --flags are rejected, never absorbed into the topic.
+  const parse = PARSERS[kind]
+  if (parse) {
+    const parsed = parse(args, state.tunables)
+    if (!(parsed.topic || parsed.id)) return err(usage)
+    if (parsed.unsupported.length > 0) {
+      return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman ${kind} ${spec.hint}\`.`)
+    }
+    const body = buildPrompt(kind, parsed, liveRefs(state))
+    invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
+    return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in ${parsed.outputDir ?? 'outputs'}/.` }
+  }
+  const body = kind === 'review-loop'
+    ? reviewLoopPrompt(invocation, args, state)
+    : buildPrompt(kind, args, liveRefs(state))
+  if (body === null) return err(usage)
+  invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
+  return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
 }
 
 function reviewLoopPrompt(invocation, args, state) {
@@ -323,16 +301,14 @@ async function doctorHandler(invocation, ctx, state) {
 async function statusHandler(invocation, ctx, state) {
   if (invocation.rawInput.trim()) return err('Usage: /feynman status (no arguments)')
   const refs = liveRefs(state)
-  const [hf, ax] = await Promise.all([keyState(ctx, refs.hfTokenEnv), keyState(ctx, refs.alphaxivTokenEnv)])
   return {
     kind: 'success',
     text: [
       'Feynman setup summary:',
-      `- Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
-      `- AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
+      ...(await keySummary(ctx, refs)).map((line) => `- ${line}`),
       `- Key refs: hfTokenEnv=${refs.hfTokenEnv} alphaxivTokenEnv=${refs.alphaxivTokenEnv} (row config; invalid names fail at load)`,
       '- Model route: one profile route (see the agent-default-model row); per-turn overrides are not supported here.',
-      '- Thinking levels: off, minimal, low, medium, high, xhigh, max (note a level with /feynman thinking <level>).',
+      `- Thinking levels: ${THINKING_LEVELS.join(', ')} (note a level with /feynman thinking <level>).`,
       '- For the full checklist run /feynman doctor.',
     ].join('\n'),
   }
@@ -382,12 +358,6 @@ function thinkingHandler(invocation) {
   return { kind: 'success', text: `Thinking level noted: ${level}. Applies where the model route supports it.` }
 }
 
-/** One-line excerpt of a search hit, tolerant of a malformed page. */
-function excerpt(snippet) {
-  const text = typeof snippet === 'string' ? snippet.replace(/\s+/g, ' ').trim() : ''
-  return text.length > 160 ? `${text.slice(0, 157)}…` : text || '(no excerpt)'
-}
-
 /**
  * Run the full-text search when the session-query seam is mounted, so the
  * result is the search itself. An unmounted seam is an error, never a success
@@ -410,7 +380,10 @@ async function searchHandler(invocation, ctx) {
   const hits = Array.isArray(page?.items) ? page.items : []
   if (hits.length === 0) return { kind: 'success', text: `No past sessions match "${q}".` }
   const lines = [`Past sessions matching "${q}" (${hits.length}):`]
-  for (const hit of hits) lines.push(`- ${hit?.header?.id ?? 'unknown'}: ${excerpt(hit?.bestMatch?.snippet)}`)
+  for (const hit of hits) {
+    const raw = typeof hit?.bestMatch?.snippet === 'string' ? hit.bestMatch.snippet.replace(/\s+/g, ' ').trim() : ''
+    lines.push(`- ${hit?.header?.id ?? 'unknown'}: ${raw.length > 160 ? `${raw.slice(0, 157)}…` : raw || '(no excerpt)'}`)
+  }
   if (page.nextCursor !== undefined) lines.push('More matches exist; narrow the query to see them.')
   return { kind: 'success', text: lines.join('\n') }
 }
@@ -448,7 +421,7 @@ export function apply(ctx, config = {}) {
     // One top-level name; everything else rides `feynman <subcommand>`.
     // Bare generic names (log, jobs, help, …) belong to the host or the user.
     disposers.push(ctx.commands.register({
-      definitionId: CommandDefinitionId('dsh-feynman:feynman'),
+      definitionId: 'dsh-feynman:feynman',
       name: 'feynman',
       description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys, doctor, status)',
       input: { hint: '<workflow | subcommand> [args]', attachments: true },

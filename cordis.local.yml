@@ -5,6 +5,3 @@
 - insert:
     - id: feynman
       name: '/home/maci/dsh-plugins/dsh-feynman/index.js'
-      config:
-        hfTokenEnv: HF_TOKEN
-        alphaxivTokenEnv: ALPHAXIV_API_KEY
