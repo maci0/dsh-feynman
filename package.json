@@ -1,24 +1,16 @@
 {
   "name": "dsh-feynman",
-  "version": "0.10.0",
-  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, \u2026) for DeepSeek Harness",
+  "version": "0.10.1",
+  "private": true,
   "type": "module",
   "main": "index.js",
+  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, \u2026) for DeepSeek Harness",
+  "license": "MIT",
   "exports": {
     ".": "./index.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "index.js",
-    "prompts.js",
-    "lib/client.js",
-    "cordis.patch.yml"
-  ],
-  "scripts": {
-    "test": "node --test commands.test.js client.test.js"
-  },
-  "license": "MIT",
   "dsh": {
     "client": {
       "platform": "web",
@@ -33,10 +25,21 @@
       ]
     }
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.2"
+  "files": [
+    "index.js",
+    "prompts.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test commands.test.js client.test.js"
   },
   "engines": {
     "node": ">=22.6.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.2"
   }
 }

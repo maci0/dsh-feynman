@@ -116,8 +116,7 @@ client.test.js    card tests (registration, ready-gating, badges, no literal lea
 ## Development
 
 ```sh
-npm install       # schemastery (settings namespace schema)
-npm test          # node --test commands.test.js client.test.js (no build step)
+npm test          # node --test commands.test.js client.test.js (Node >= 22.6, no build step)
 ```
 
 ## Uninstall

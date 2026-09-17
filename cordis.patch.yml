@@ -4,7 +4,7 @@
 # dedupe ids, two rows would register the plugin twice.
 - insert:
     - id: feynman
-      name: dsh-feynman
+      name: 'dsh-feynman'
       config:
         hfTokenEnv: HF_TOKEN
         alphaxivTokenEnv: ALPHAXIV_API_KEY
