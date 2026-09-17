@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)))
 const src = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
 
+/** Installed version from package.json: the card header must show it. */
+const pkgVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
+
 /** Stateful React stub: createElement tree + hooks that survive re-render. */
 function createReactStub() {
   const hooks = []
@@ -138,6 +141,7 @@ test('open card shows configured badges without leaking literals', async () => {
   const closed = Card()
   // Closed header shows the card name and placeholder badges.
   assert.ok(textOf(closed).includes('Research Keys'))
+  assert.ok(textOf(closed).includes(`v${pkgVersion}`), 'header shows the plugin version')
   // Open it: the header button's onClick triggers describe + badge refresh.
   const header = closed.children.find((c) => c.type === 'button')
   header.props.onClick()
