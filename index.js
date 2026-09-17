@@ -10,8 +10,10 @@
  * Load via a row in ~/.dsh/profiles/<profile>/cordis.patch.yml, or
  * `--patch cordis.local.yml`.
  */
-import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, slugify } from './prompts.js'
+import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
+import { createUserMessage } from '@deepseek-ai/dsh-llm/message'
+import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 
 export const name = 'feynman'
 // The review-loop driver resolves agents from the registry on turn/end;
@@ -21,14 +23,28 @@ export const inject = ['commands', 'agents']
 /** Settings namespace the browser card edits: key refs only, never secrets. */
 export const RESEARCH_KEYS_NAMESPACE = 'research-keys'
 
-/** The two env refs, resolved from settings when mounted, else row config. */
-export const ResearchKeys = Schema.object({
-  hfTokenEnv: Schema.string().default('HF_TOKEN'),
-  alphaxivTokenEnv: Schema.string().default('ALPHAXIV_API_KEY'),
+/**
+ * Deployment tunables plus the two env refs. The credential refs are also the
+ * settings-card schema; the loop/rank bounds are the same exported row-config
+ * surface so one deployment can widen the loop or raise `--limit` without a
+ * code edit.
+ */
+export const Config = Schema.object({
+  hfTokenEnv: Schema.string().role('credential-ref').default('HF_TOKEN'),
+  alphaxivTokenEnv: Schema.string().role('credential-ref').default('ALPHAXIV_API_KEY'),
+  loopDefaultRounds: Schema.natural().default(3),
+  loopMaxRounds: Schema.natural().default(10),
+  rankLimitDefault: Schema.natural().default(20),
+  rankLimitCap: Schema.natural().default(100),
 })
 
-// ponytail: per-agent loop state keyed by session id; upgrade to ctx on agent.ctx if multi-agent loops matter.
-const loops = new Map()
+/** Default refs; row config is the base layer and the fallback. */
+const DEFAULT_KEY_REFS = Object.freeze({ hfTokenEnv: 'HF_TOKEN', alphaxivTokenEnv: 'ALPHAXIV_API_KEY' })
+
+/** Default loop/rank bounds; the same shape `normalizeConfig` validates. */
+const DEFAULT_TUNABLES = Object.freeze({
+  defaultRounds: 3, maxRounds: 10, limitDefault: 20, limitCap: 100,
+})
 
 // --- key configuration (Hugging Face + AlphaXiv) ---
 //
@@ -39,29 +55,68 @@ const loops = new Map()
 
 const REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-/** Active refs; row config overrides at load. Read by /keys and the prelude. */
-let keyRefs = { hfTokenEnv: 'HF_TOKEN', alphaxivTokenEnv: 'ALPHAXIV_API_KEY' }
+/**
+ * Per-instance plugin state. Module-level state outlives plugin unload and is
+ * shared by every instance, so a patch reload would re-run apply on top of the
+ * previous instance's loops.
+ */
+function createState(config) {
+  const { refs, tunables } = normalizeConfig(config, DEFAULT_KEY_REFS)
+  return {
+    refs,
+    tunables,
+    // Base layer for the settings namespace: the resolved refs AND the resolved
+    // bounds, so the card never advertises a value the plugin does not use.
+    entry: {
+      ...refs,
+      loopDefaultRounds: tunables.defaultRounds,
+      loopMaxRounds: tunables.maxRounds,
+      rankLimitDefault: tunables.limitDefault,
+      rankLimitCap: tunables.limitCap,
+    },
+    source: () => refs,
+    loops: new Map(),
+  }
+}
 
-/** Settings scope once attached; row config is the base and the fallback. */
-let keySource = () => keyRefs
-
-function normalizeConfig(config) {
+function normalizeConfig(config, fallback) {
   const refs = {
-    hfTokenEnv: config.hfTokenEnv ?? keyRefs.hfTokenEnv,
-    alphaxivTokenEnv: config.alphaxivTokenEnv ?? keyRefs.alphaxivTokenEnv,
+    hfTokenEnv: config.hfTokenEnv ?? fallback.hfTokenEnv,
+    alphaxivTokenEnv: config.alphaxivTokenEnv ?? fallback.alphaxivTokenEnv,
   }
   for (const [field, value] of Object.entries(refs)) {
     if (typeof value !== 'string' || !REF_PATTERN.test(value)) {
       throw new Error(`[feynman] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
     }
   }
-  return refs
+  const tunables = {
+    defaultRounds: positive(config.loopDefaultRounds, DEFAULT_TUNABLES.defaultRounds, 'loopDefaultRounds'),
+    maxRounds: positive(config.loopMaxRounds, DEFAULT_TUNABLES.maxRounds, 'loopMaxRounds'),
+    limitDefault: positive(config.rankLimitDefault, DEFAULT_TUNABLES.limitDefault, 'rankLimitDefault'),
+    limitCap: positive(config.rankLimitCap, DEFAULT_TUNABLES.limitCap, 'rankLimitCap'),
+  }
+  if (tunables.defaultRounds > tunables.maxRounds) {
+    throw new Error(`[feynman] loopDefaultRounds (${tunables.defaultRounds}) exceeds loopMaxRounds (${tunables.maxRounds})`)
+  }
+  if (tunables.limitDefault > tunables.limitCap) {
+    throw new Error(`[feynman] rankLimitDefault (${tunables.limitDefault}) exceeds rankLimitCap (${tunables.limitCap})`)
+  }
+  return { refs, tunables }
+}
+
+/** A configured bound must be a positive integer; absent falls back to the default. */
+function positive(value, fallback, field) {
+  const resolved = value ?? fallback
+  if (!Number.isInteger(resolved) || resolved < 1) {
+    throw new Error(`[feynman] ${field} must be a positive integer; got ${JSON.stringify(value)}`)
+  }
+  return resolved
 }
 
 /** Read live refs from the settings scope when valid, else the row fallback. */
-function liveRefs() {
+function liveRefs(state) {
   try {
-    const value = keySource()
+    const value = state.source()
     if (value !== null && typeof value === 'object') {
       const { hfTokenEnv, alphaxivTokenEnv } = value
       if (typeof hfTokenEnv === 'string' && typeof alphaxivTokenEnv === 'string') {
@@ -69,7 +124,7 @@ function liveRefs() {
       }
     }
   } catch { /* fall through to row config */ }
-  return keyRefs
+  return state.refs
 }
 
 /** Whether the settings namespace behind the config card is served. */
@@ -96,10 +151,10 @@ async function keyState(ctx, ref) {
   return process.env[ref] ? 'set (environment)' : 'unset'
 }
 
-async function keysHandler(invocation, ctx) {
+async function keysHandler(invocation, ctx, state) {
   const args = invocation.rawInput.trim().split(/\s+/).filter(Boolean)
   const creds = service(ctx, 'credentials')
-  const refs = liveRefs()
+  const refs = liveRefs(state)
   if (args.length === 0) {
     const [hf, ax] = await Promise.all([keyState(ctx, refs.hfTokenEnv), keyState(ctx, refs.alphaxivTokenEnv)])
     return {
@@ -149,38 +204,38 @@ function subUsage(sub) {
  * session subcommand; the rest is that subcommand's raw input. Attachments
  * ride along on the sub-invocation.
  */
-function researchHandler(invocation, ctx, sessionHandlers) {
+function researchHandler(invocation, ctx, sessionHandlers, state) {
   const [sub = '', ...rest] = invocation.rawInput.trim().split(/\s+/).filter(Boolean)
   const name = sub.toLowerCase()
   if (!name) return helpHandler({ ...invocation, rawInput: '' })
   const subInvocation = { ...invocation, rawInput: rest.join(' ') }
-  if (WORKFLOWS[name]) return workflowHandler(name)(subInvocation)
+  if (WORKFLOWS[name]) return workflowHandler(name, state)(subInvocation)
   const session = sessionHandlers[name]
   if (session) return session(subInvocation, ctx)
   return err(`${subUsage('')} — unknown subcommand "${sub}".`)
 }
 
-function workflowHandler(kind) {
+function workflowHandler(kind, state) {
   const spec = WORKFLOWS[kind]
   const usage = `Usage: /feynman ${kind} ${spec.hint}`
   return (invocation) => {
     const args = invocation.rawInput.trim()
     if (spec.required && !args) return err(usage)
     if (kind === 'review-loop' && args.toLowerCase() === 'stop') {
-      const loop = loops.get(invocation.agent.session.id)
+      const loop = state.loops.get(invocation.agent.session.id)
       if (!loop) return { kind: 'success', text: 'No review loop is running.' }
-      loops.delete(invocation.agent.session.id)
+      state.loops.delete(invocation.agent.session.id)
       return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
     }
     // Queue the workflow brief as the agent's next turn; the followup IS the work.
     // Rank and paper parse every flag; unknown --flags are rejected, never absorbed into the topic.
     if (kind === 'rank') {
-      const parsed = parseRankArgs(args)
+      const parsed = parseRankArgs(args, state.tunables)
       if (!parsed.topic) return err(usage)
       if (parsed.unsupported.length > 0) {
         return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman rank ${WORKFLOWS.rank.hint}\`.`)
       }
-      const body = buildPrompt(kind, parsed, liveRefs())
+      const body = buildPrompt(kind, parsed, liveRefs(state))
       invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
       return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in ${parsed.outputDir}/.` }
     }
@@ -190,37 +245,39 @@ function workflowHandler(kind) {
       if (parsed.unsupported.length > 0) {
         return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman paper ${WORKFLOWS.paper.hint}\`.`)
       }
-      const body = buildPrompt(kind, parsed, liveRefs())
+      const body = buildPrompt(kind, parsed, liveRefs(state))
       invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
       return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
     }
     const body = kind === 'review-loop'
-      ? reviewLoopPrompt(invocation, args)
-      : buildPrompt(kind, args, liveRefs())
+      ? reviewLoopPrompt(invocation, args, state)
+      : buildPrompt(kind, args, liveRefs(state))
     if (body === null) return err(usage)
     invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
     return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
   }
 }
 
-function reviewLoopPrompt(invocation, args) {
-  const { target, rounds } = parseLoopArgs(args)
+function reviewLoopPrompt(invocation, args, state) {
+  const { target, rounds } = parseLoopArgs(args, state.tunables)
   if (!target) return null
-  loops.set(invocation.agent.session.id, { target, rounds, round: 1 })
-  const brief = buildPrompt('review-loop', target, liveRefs())
+  state.loops.set(invocation.agent.session.id, { target, rounds, round: 1 })
+  const brief = buildPrompt('review-loop', target, liveRefs(state))
   return `${brief}\n\nRound 1 of ${rounds}; follow-ups will drive re-review.`
 }
 
-/** Minimal user message; avoids importing dsh-llm out-of-tree. */
+/**
+ * Frozen user message for the queued follow-up. Built through the llm seam so
+ * identity branding, role, and deep-frozen content match every other producer;
+ * the queued message is handed to followup()/inject() and must not be mutated.
+ */
 function userMessage(invocation, text) {
-  const blocks = [...invocation.attachments, { type: 'text', text }]
-  return {
-    content: blocks,
+  const content = [...invocation.attachments, { type: 'text', text }]
+  return createUserMessage({
+    content,
     // Plugin source, not forged 'user': title/outline/activity consumers gate human input on kind === 'user'.
     source: { kind: 'plugin', plugin: 'feynman', form: 'relay' },
-    id: crypto.randomUUID(),
-    role: 'user',
-  }
+  })
 }
 
 function logHandler(invocation) {
@@ -240,9 +297,9 @@ function jobsHandler(invocation, ctx) {
   return { kind: 'success', text: lines.join('\n') }
 }
 
-async function doctorHandler(invocation, ctx) {
+async function doctorHandler(invocation, ctx, state) {
   if (invocation.rawInput.trim()) return err('Usage: /feynman doctor (no arguments)')
-  const refs = liveRefs()
+  const refs = liveRefs(state)
   const lines = ['Feynman diagnostics:']
   for (const [label, ref] of [['Hugging Face', refs.hfTokenEnv], ['AlphaXiv', refs.alphaxivTokenEnv]]) {
     lines.push(`- ${label} key (${ref}): ${await keyState(ctx, ref)}`)
@@ -250,7 +307,7 @@ async function doctorHandler(invocation, ctx) {
   const present = (key) => service(ctx, key) !== undefined && service(ctx, key) !== null
   for (const [label, key] of [['credentials store', 'credentials'], ['settings (config card)', 'settings'],
     ['jobs', 'jobs'], ['session search', 'sessionQuery'], ['scheduler', 'schedule']]) {
-    lines.push(`- ${label}: ${present(key) ? 'mounted' : 'absent — related commands degrade to guidance text'}`)
+    lines.push(`- ${label}: ${present(key) ? 'mounted' : 'absent — related commands degrade to an error or guidance text'}`)
   }
   try {
     const { execFileSync } = await import('node:child_process')
@@ -263,9 +320,9 @@ async function doctorHandler(invocation, ctx) {
   return { kind: 'success', text: lines.join('\n') }
 }
 
-async function statusHandler(invocation, ctx) {
+async function statusHandler(invocation, ctx, state) {
   if (invocation.rawInput.trim()) return err('Usage: /feynman status (no arguments)')
-  const refs = liveRefs()
+  const refs = liveRefs(state)
   const [hf, ax] = await Promise.all([keyState(ctx, refs.hfTokenEnv), keyState(ctx, refs.alphaxivTokenEnv)])
   return {
     kind: 'success',
@@ -325,30 +382,47 @@ function thinkingHandler(invocation) {
   return { kind: 'success', text: `Thinking level noted: ${level}. Applies where the model route supports it.` }
 }
 
-function searchHandler(invocation, ctx) {
+/** One-line excerpt of a search hit, tolerant of a malformed page. */
+function excerpt(snippet) {
+  const text = typeof snippet === 'string' ? snippet.replace(/\s+/g, ' ').trim() : ''
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text || '(no excerpt)'
+}
+
+/**
+ * Run the full-text search when the session-query seam is mounted, so the
+ * result is the search itself. An unmounted seam is an error, never a success
+ * that claims work happened.
+ */
+async function searchHandler(invocation, ctx) {
   const q = invocation.rawInput.trim()
   if (!q) return err('Usage: /feynman search <query>')
-  if (typeof service(ctx, 'sessionQuery')?.searchSessions === 'function') {
-    return {
-      kind: 'success',
-      text: `Searching past sessions for "${q}" via full-text search. Ask me and I will run it and summarize the hits.`,
-    }
+  const engine = service(ctx, 'sessionQuery')
+  if (typeof engine?.searchSessions !== 'function') {
+    return err(`Full-text search is not mounted in this profile (session-query seam).` +
+      ` Grep this session's history instead: rg -n "${q.replaceAll('"', "'")}" <session-dir>.`)
   }
-  return {
-    kind: 'success',
-    text: `Full-text search is not mounted in this profile (session-query seam with openAt startup or first-search).` +
-      ` Ask me and I will grep this session's history, or run: rg -n "${q.replaceAll('"', "'")}" <session-dir>.`,
+  let page
+  try {
+    page = await engine.searchSessions({ query: q, limit: 10 })
+  } catch (error) {
+    return err(`Session search failed: ${error instanceof Error ? error.message : String(error)}`)
   }
+  const hits = Array.isArray(page?.items) ? page.items : []
+  if (hits.length === 0) return { kind: 'success', text: `No past sessions match "${q}".` }
+  const lines = [`Past sessions matching "${q}" (${hits.length}):`]
+  for (const hit of hits) lines.push(`- ${hit?.header?.id ?? 'unknown'}: ${excerpt(hit?.bestMatch?.snippet)}`)
+  if (page.nextCursor !== undefined) lines.push('More matches exist; narrow the query to see them.')
+  return { kind: 'success', text: lines.join('\n') }
 }
 
 export function apply(ctx, config = {}) {
-  keyRefs = normalizeConfig(config)
+  const state = createState(config)
 
   // Settings namespace for the browser card: refs only, never secrets.
   // Row config is the base layer and the fallback when settings is absent.
   ctx.inject?.(['settings'], (scope) => {
-    scope.settings.installSection(ctx, RESEARCH_KEYS_NAMESPACE, ResearchKeys, { ...keyRefs }, {
-      setSource: (current) => { keySource = current },
+    scope.settings.installSection(ctx, RESEARCH_KEYS_NAMESPACE, Config, { ...state.entry }, {
+      setSource: (current) => { state.source = current },
       onChange: () => {},
     })
   })
@@ -367,33 +441,35 @@ export function apply(ctx, config = {}) {
         kind: 'success',
         text: 'Stored web results live in this session log (web_search/web_fetch tool calls). Ask me to summarize the sources fetched so far and I will reconstruct them from history.',
       }),
-      keys: keysHandler, doctor: doctorHandler, status: statusHandler,
+      keys: (inv, context) => keysHandler(inv, context, state),
+      doctor: (inv, context) => doctorHandler(inv, context, state),
+      status: (inv, context) => statusHandler(inv, context, state),
     }
     // One top-level name; everything else rides `feynman <subcommand>`.
     // Bare generic names (log, jobs, help, …) belong to the host or the user.
     disposers.push(ctx.commands.register({
-      definitionId: 'dsh-feynman:feynman',
+      definitionId: CommandDefinitionId('dsh-feynman:feynman'),
       name: 'feynman',
       description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys, doctor, status)',
       input: { hint: '<workflow | subcommand> [args]', attachments: true },
       recordInput: false,
-      handler: (inv) => researchHandler(inv, ctx, sessionHandlers),
+      handler: (inv) => researchHandler(inv, ctx, sessionHandlers, state),
     }))
     // /review-loop driver: after each completed turn, queue the next round.
     // Keyed by session id: the registry keys agents by session id, so the
     // lookup below resolves the same agent that stored the loop at dispatch.
     const offTurn = ctx.on('session/event', (session, event) => {
       if (event?.type !== 'turn/end' || event?.data?.reason?.kind !== 'completed') return
-      const agent = service(ctx, 'agents')?.get?.(session.id)
+      // `agents` is injected, so the service is present; ctx.get is for the
+      // optional seams only. The identity guard matches upstream
+      // (api/session-controller): the emitted session IS agent.session.
+      const agent = ctx.agents.get(session.id)
       if (!agent || agent.session !== session) return
-      const loop = loops.get(session.id)
-      if (!loop || loop.round >= loop.rounds) { loops.delete(session.id); return }
+      const loop = state.loops.get(session.id)
+      if (!loop || loop.round >= loop.rounds) { state.loops.delete(session.id); return }
       loop.round += 1
       agent.followup(userMessage({ attachments: [], agent }, loopFollowupPrompt(loop.target, loop.round, loop.rounds - loop.round)))
     })
     return () => { offTurn?.(); for (const d of disposers) d() }
   })
 }
-
-// Re-exported for tests.
-export { slugify, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt }

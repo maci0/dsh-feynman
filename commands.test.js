@@ -118,9 +118,14 @@ test('settings namespace serves row config as base', () => {
     on: () => () => {},
     get: () => undefined,
     inject: (deps, cb) => { if (deps.includes('settings')) cb({ settings: fakeSettings }) },
-  }, { hfTokenEnv: 'CUSTOM_HF' })
+  }, { hfTokenEnv: 'CUSTOM_HF', loopMaxRounds: 12 })
   assert.equal(captured.ns, 'research-keys')
-  assert.deepEqual(captured.resolved, { hfTokenEnv: 'CUSTOM_HF', alphaxivTokenEnv: 'ALPHAXIV_API_KEY' })
+  // Row config is the base layer for the refs and for the loop/rank tunables,
+  // which ride the same exported Config schema with their defaults.
+  assert.deepEqual(captured.resolved, {
+    hfTokenEnv: 'CUSTOM_HF', alphaxivTokenEnv: 'ALPHAXIV_API_KEY',
+    loopDefaultRounds: 3, loopMaxRounds: 12, rankLimitDefault: 20, rankLimitCap: 100,
+  })
   assert.ok(captured.json && typeof captured.json === 'object', 'schema serializes for describe()')
   assert.equal(typeof hooks.setSource, 'function')
 })
@@ -155,6 +160,9 @@ test('one /feynman dispatcher covers every subcommand', async () => {
     assert.equal(m.role, 'user')
     assert.equal(typeof m.id, 'string')
     assert.equal(m.source.kind, 'plugin')
+    // Built through createUserMessage: deep-frozen for every consumer downstream.
+    assert.ok(Object.isFrozen(m), 'queued message is frozen')
+    assert.ok(Object.isFrozen(m.content), 'queued message content is frozen')
   }
   assert.equal(new Set(followups.map((m) => m.id)).size, followups.length, 'steering ids collide')
   // Rank flags: everything flows through, unknowns fail loud instead of joining the topic.
@@ -206,7 +214,9 @@ test('review-loop driver advances every round through the agents registry', asyn
     effect: (fn) => { fn(); return () => {} },
     commands: { register: (d) => { handler = d.handler; return () => {} } },
     on: (event, fn) => { if (event === 'session/event') turnListener = fn; return () => {} },
-    get: (key) => key === 'agents' ? { get: (id) => registry.get(id) } : undefined,
+    // `agents` is injected, so the plugin reads it directly.
+    agents: { get: (id) => registry.get(id) },
+    get: () => undefined,
   }, {})
   const run = (rawInput) => handler({ rawInput, agent, attachments: [] })
   const started = await run('review-loop paper.pdf 3')
@@ -224,4 +234,144 @@ test('review-loop driver advances every round through the agents registry', asyn
   assert.equal(followups.length, 3, 'loop ends after the final round')
   const stopped = await run('review-loop stop')
   assert.ok(stopped.text.includes('No review loop'), 'finished loop reports absent')
+})
+
+// Plugin state is per apply instance: a second load must not see the first
+// instance's loops (module-level state would leak across a patch reload).
+test('review-loop state is per apply instance', async () => {
+  const make = () => {
+    let handler
+    const session = { id: 'shared-session' }
+    const agent = { id: 'shared-session', session, followup: () => {}, inject: () => {} }
+    apply({
+      effect: (fn) => { fn(); return () => {} },
+      commands: { register: (d) => { handler = d.handler; return () => {} } },
+      on: () => () => {},
+      get: () => undefined,
+    }, {})
+    return (rawInput) => handler({ rawInput, agent, attachments: [] })
+  }
+  const first = make()
+  const second = make()
+  await first('review-loop paper.pdf 3')
+  const leaked = await second('review-loop stop')
+  assert.ok(leaked.text.includes('No review loop'), 'second instance sees the first instance loop')
+  const owned = await first('review-loop stop')
+  assert.ok(owned.text.includes('stopped after 0 round'), 'first instance lost its own loop')
+})
+
+// Loop/rank bounds are row-config fields, not code constants: one deployment
+// can widen the loop or raise --limit without an edit.
+test('loop and rank bounds come from row config', async () => {
+  const registered = []
+  const followups = []
+  const agent = { id: 'cfg', session: { id: 'cfg' }, followup: (m) => followups.push(m), inject: () => {} }
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { registered.push(d); return () => {} } },
+    on: () => () => {},
+    get: () => undefined,
+  }, { loopDefaultRounds: 5, loopMaxRounds: 6, rankLimitDefault: 8, rankLimitCap: 9 })
+  const run = (rawInput) => registered[0].handler({ rawInput, agent, attachments: [] })
+  await run('review-loop paper.pdf')
+  assert.ok(followups.at(-1).content[0].text.includes('Round 1 of 5'), 'configured default rounds')
+  await run('review-loop paper.pdf 6')
+  assert.ok(followups.at(-1).content[0].text.includes('Round 1 of 6'), 'configured cap is reachable')
+  await run('review-loop paper.pdf 7')
+  assert.ok(followups.at(-1).content[0].text.includes('Round 1 of 5'), 'above the cap falls back to the default')
+  await run('rank scaling laws')
+  assert.ok(followups.at(-1).content[0].text.includes('up to 8 seed candidates'), 'configured rank default')
+  await run('rank scaling laws --limit 100')
+  assert.ok(followups.at(-1).content[0].text.includes('up to 9 seed candidates'), 'configured rank cap')
+})
+
+test('invalid tunables fail at load', () => {
+  const load = (config) => apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: () => () => {} },
+    on: () => () => {},
+    get: () => undefined,
+  }, config)
+  for (const config of [
+    { loopDefaultRounds: 0 },
+    { loopMaxRounds: -1 },
+    { rankLimitDefault: 2.5 },
+    { rankLimitCap: 'lots' },
+    { loopDefaultRounds: 5, loopMaxRounds: 4 },
+    { rankLimitDefault: 30, rankLimitCap: 10 },
+  ]) {
+    assert.throws(() => load(config), /\[feynman\]/, `accepted ${JSON.stringify(config)}`)
+  }
+})
+
+// /feynman search does the work it names: mounted seam → real hits, absent
+// seam → an error, never a success claiming a search that never ran.
+test('search returns real hits from the session-query seam', async () => {
+  const calls = []
+  let handler
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: (key) => key === 'sessionQuery' ? {
+      searchSessions: async (request) => {
+        calls.push(request)
+        return { items: [{ header: { id: 's-42' }, bestMatch: { snippet: 'a hit about\nscaling laws' } }] }
+      },
+    } : undefined,
+  }, {})
+  const result = await handler({ rawInput: 'search scaling laws', agent: {}, attachments: [] })
+  assert.equal(result.kind, 'success')
+  assert.deepEqual(calls, [{ query: 'scaling laws', limit: 10 }], 'the seam was actually called')
+  assert.ok(result.text.includes('s-42'), 'hit id rendered')
+  assert.ok(result.text.includes('a hit about scaling laws'), 'snippet rendered')
+})
+
+test('an unmounted session-query seam is an error, not a fake success', async () => {
+  let handler
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: () => undefined,
+  }, {})
+  const result = await handler({ rawInput: 'search anything', agent: {}, attachments: [] })
+  assert.equal(result.kind, 'error', 'must not claim work it did not do')
+  assert.ok(result.text.includes('not mounted'))
+})
+
+// docs/testing.md:37-41 — a real in-process Cordis composition, not a
+// hand-built ctx: mount the shipped entry, assert its registrations, dispose
+// the fiber, and assert the teardown.
+test('real Cordis composition mounts the plugin and tears it down', async () => {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const { name, inject, apply } = await import('./index.js')
+  const registered = []
+  const session = { id: 'real-session' }
+  const followups = []
+  const agent = { id: 'real-session', session, followup: (m) => followups.push(m), inject: () => {} }
+  const ctx = new Context()
+  ctx.provide('commands', {
+    register: (definition) => {
+      registered.push(definition)
+      return () => { const i = registered.indexOf(definition); if (i >= 0) registered.splice(i, 1) }
+    },
+  })
+  ctx.provide('agents', { get: (id) => (id === agent.id ? agent : undefined) })
+
+  const fiber = await ctx.plugin({ name, inject, apply }, {})
+  assert.equal(registered.length, 1, 'exactly one command registered')
+  assert.equal(registered[0].name, 'feynman')
+  assert.equal(registered[0].definitionId, 'dsh-feynman:feynman', 'branded id keeps its string value')
+  const started = await registered[0].handler({ rawInput: 'review-loop paper.pdf 3', agent, attachments: [] })
+  assert.equal(started.kind, 'success')
+  assert.equal(followups.length, 1, 'round 1 queued through the real handler')
+  // The review-loop driver is live on the real event bus.
+  ctx.emit('session/event', session, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  assert.equal(followups.length, 2, 'turn/end advanced the loop through the real bus')
+
+  await fiber.dispose()
+  assert.equal(registered.length, 0, 'command registration outlives the fiber')
+  ctx.emit('session/event', session, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  assert.equal(followups.length, 2, 'session/event listener disposed with the fiber')
 })

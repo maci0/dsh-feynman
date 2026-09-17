@@ -7,7 +7,7 @@ Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (se
 | Capability | Extension point | Effect |
 |---|---|---|
 | 14 workflow subcommands | one `/feynman` dispatcher | `deepresearch`, `lit`, `review`, `review-loop`, `audit`, `replicate`, `recipe`, `compare`, `draft`, `autoresearch`, `watch`, `rank`, `paper`, `preview` queue a workflow brief as the agent's next turn. |
-| 13 session subcommands | one `/feynman` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys`, `doctor`, `status` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams with guidance-text fallback. |
+| 13 session subcommands | one `/feynman` dispatcher | `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys`, `doctor`, `status` reuse the in-box `jobs`, `sessionQuery`, and `credentials` seams. `/feynman search <query>` runs the full-text query and returns its hits; the other seam-backed commands fall back to guidance text. |
 | Review loop driver | `ctx.on('session/event')` | After each completed `turn/end`, `/feynman review-loop` queues the next fix→re-review round until rounds run out; `/feynman review-loop stop` ends it early. |
 | Subcommand picker | `commandUi.decorate('feynman')` | Bare `/feynman` (menu pick or enter) opens a subcommand popup; a pick submits the completed `/feynman <sub>` line, so every subcommand is completable from the `/` menu. |
 | Research Keys card | `settings.plugin.item` slot + `research-keys` settings namespace | A **Research Keys** card in Settings → Plugins → **Plugin configuration** saves the Hugging Face and AlphaXiv keys through the credentials domain — key literals never touch settings. |
@@ -52,16 +52,17 @@ Three ways, in precedence order (environment shadows the store):
 
 Row config renames the refs only (defaults `HF_TOKEN` / `ALPHAXIV_API_KEY`); `HUGGINGFACE_HUB_TOKEN` works too — point the ref at it via row config. Invalid names fail at load.
 
+Row config also carries the loop and rank bounds: `loopDefaultRounds` (3), `loopMaxRounds` (10), `rankLimitDefault` (20), `rankLimitCap` (100). A deployment can widen the review loop or raise `--limit` without a code edit; invalid values fail at load.
+
 The AlphaXiv key is spent via `web_fetch` against the AlphaXiv API (paper search, section-filtered content, Q&A, linked-repo code, annotations); without it the briefs fall back to arXiv + OpenAlex and mark citation-metadata/discussion checks blocked.
 
 ## Install
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-feynman
-# pnpm will warn "declares no dsh.bundle — installed as a plain dependency". That is the point.
 ```
 
-Then paste this into `~/.dsh/profiles/web/cordis.patch.yml` (or merge into an existing `- insert:` list):
+The package declares `dsh.bundle`, so `dsh plugin add` appends it to `dsh.profile.bundles` and the shipped `cordis.patch.yml` applies as a layer. Nothing to paste by hand:
 
 ```yaml
 - insert:
@@ -72,7 +73,7 @@ Then paste this into `~/.dsh/profiles/web/cordis.patch.yml` (or merge into an ex
         alphaxivTokenEnv: ALPHAXIV_API_KEY
 ```
 
-Saving that file remounts the plugin. No profile restart. `dsh.profile.bundles` is frozen at boot — do not put this package there, or `insert` will register it twice.
+Saving a profile patch remounts the plugin. No profile restart. `dsh.profile.bundles` is frozen at boot — do not also paste that row into the profile's own `cordis.patch.yml`, or `insert` will register it twice.
 
 Local overlay for a one-shot boot (absolute path required):
 
@@ -105,7 +106,7 @@ Invalid configuration fails while the plugin loads rather than silently pointing
 index.js          host plugin: /feynman dispatcher, review-loop driver, research-keys namespace
 prompts.js        pure workflow catalog (no harness imports; unit-tested with plain node)
 lib/client.js     browser half: the Research Keys card (loader factory format)
-cordis.patch.yml  the Loader row to paste into the profile's live-watched patch
+cordis.patch.yml  the bundle layer: the Loader row applied when a profile lists this bundle
 cordis.local.yml  dev overlay: same row with an absolute path, for --patch
 commands.test.js  host tests (prompts + registration + handler results)
 client.test.js    card tests (registration, ready-gating, badges, no literal leaks)
@@ -116,7 +117,7 @@ client.test.js    card tests (registration, ready-gating, badges, no literal lea
 ## Development
 
 ```sh
-npm test          # node --test commands.test.js client.test.js (Node >= 22.6, no build step)
+npm test          # node --test commands.test.js client.test.js (Node ^22.19 || >=24, no build step)
 ```
 
 ## Uninstall
@@ -131,7 +132,7 @@ and delete the `id: feynman` row from `~/.dsh/profiles/<profile>/cordis.patch.ym
 
 - **Host source edits remount when `id: hmr` is enabled** with this checkout in `config.root`. Without that, a live patch reload re-runs `apply` from the ESM module already in memory.
 - **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package, so the host half can stay up.
-- **Review-loop state is process-local.** Loop rounds live in a module-level map keyed by session id; a profile restart forgets them. Durable loop state arrives when it needs to survive restarts.
+- **Review-loop state is instance-local.** Loop rounds live in the `apply` closure, keyed by session id; a profile restart forgets them. Durable loop state arrives when it needs to survive restarts.
 - **Ranking is a live heuristic.** `/rank` scores are computed transparently in-session and say so in the output; they are not a fitted model or a deterministic scorer. Unknown `--flags` are rejected instead of absorbed into the topic.
 - **One locale.** The card ships English copy; other active locales fall back to it.
 - **No paywall bypasses, ever.** Unreachable sources are marked blocked, never inferred.

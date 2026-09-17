@@ -24,15 +24,19 @@ export function stripArxivPrefixes(text) {
   return text.replace(/arxiv:\s*/gi, '').trim() || text.trim()
 }
 
-/** Split `/review-loop <target> [rounds]` trailing round count. */
-export function parseLoopArgs(rawInput) {
+/**
+ * Split `/review-loop <target> [rounds]` trailing round count.
+ * @param rawInput - text after `/feynman review-loop`.
+ * @param options - deployment tunables: default and maximum round counts.
+ */
+export function parseLoopArgs(rawInput, { defaultRounds = 3, maxRounds = 10 } = {}) {
   const match = /^(.*?)\s+(\d+)$/.exec(rawInput.trim())
   if (match) {
     const rounds = Number(match[2])
-    if (rounds >= 1 && rounds <= 10) return { target: match[1], rounds }
+    if (rounds >= 1 && rounds <= maxRounds) return { target: match[1], rounds }
   }
   const input = rawInput.trim()
-  return { target: input, rounds: 3 }
+  return { target: input, rounds: defaultRounds }
 }
 
 const TOOL_PRELUDE = `You are a research agent. Your retrieval tools are web_search and web_fetch, plus workspace tools (read, grep, glob, bash) for local files, cloned repos, and code. Route each source to its sanctioned API: arXiv papers via the export.arxiv.org API and arxiv.org/abs pages; paper metadata, citations, and references via the OpenAlex API (api.openalex.org); biomedical papers via Europe PMC; datasets, models, and repo files via the Hugging Face Hub API (huggingface.co/api, read-only). Delegate by role when it helps: researcher (deepresearch, lit, review, audit, replicate, recipe, compare, draft) gathers, reviewer (review, audit, compare) runs the adversarial pass, writer (deepresearch, lit, draft, compare) produces the final document, verifier (deepresearch, audit, replicate, recipe) fact-checks. For broad multi-angle work, fan out with the subagent tool (one description + prompt per angle) and synthesize the returns; keep narrow explainers lead-owned to avoid needless orchestration.`
@@ -126,11 +130,15 @@ Workflow: research watch on "${topic}".
 2. Run a baseline sweep (papers, articles, docs, releases, code) and save outputs/${slugify(topic)}-baseline.md: New Papers, New Articles, Relevance Notes.
 3. Schedule follow-ups ONLY with the schedule_create tool when it is visible in this session; otherwise mark scheduling blocked and include the exact refresh prompt to run later. Each follow-up check compares against the baseline so genuinely new material is separable from old findings.`
 
-/** Split `/rank <topic> [options]` flags. All upstream PaperRank flags are parsed; unknown --flags are rejected. */
-export function parseRankArgs(rawInput) {
+/**
+ * Split `/rank <topic> [options]` flags. All upstream PaperRank flags are parsed; unknown --flags are rejected.
+ * @param rawInput - text after `/feynman rank`.
+ * @param options - deployment tunables: default and maximum `--limit`.
+ */
+export function parseRankArgs(rawInput, { limitDefault = 20, limitCap = 100 } = {}) {
   const parts = rawInput.trim().split(/\s+/).filter(Boolean)
   const out = {
-    topic: '', limit: 20, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
+    topic: '', limit: limitDefault, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
     preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
     synthesisModel: null, outputDir: 'outputs', json: false, unsupported: [],
   }
@@ -138,7 +146,7 @@ export function parseRankArgs(rawInput) {
   for (let i = 0; i < parts.length; i += 1) {
     const token = parts[i]
     const next = parts[i + 1]
-    if (token === '--limit' && /^\d+$/.test(next ?? '')) { out.limit = Math.min(Math.max(Number(next), 1), 100); i += 1 }
+    if (token === '--limit' && /^\d+$/.test(next ?? '')) { out.limit = Math.min(Math.max(Number(next), 1), limitCap); i += 1 }
     else if (token === '--expand-citations' && /^\d+$/.test(next ?? '')) { out.expandCitations = Math.min(Math.max(Number(next), 0), 5); i += 1 }
     else if (token === '--full-text-top' && /^\d+$/.test(next ?? '')) { out.fullTextTop = Math.max(Number(next), 0); i += 1 }
     else if (token === '--critique-top' && /^\d+$/.test(next ?? '')) { out.critiqueTop = Math.max(Number(next), 0); i += 1 }

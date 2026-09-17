@@ -36,6 +36,8 @@ function createReactStub() {
 function loadBundle({ snapshot, credentials }) {
   const React = createReactStub()
   const dictionaries = {}
+  /** Every locale.register call, so a test can assert the registration shape. */
+  const localeRegistrations = []
   const scope = { subscribe: () => () => {}, getSnapshot: () => snapshot }
   const remote = { credentials, $on: () => () => {} }
   const registered = []
@@ -44,7 +46,12 @@ function loadBundle({ snapshot, credentials }) {
   const ctx = {
     settingsScope: { bind: () => scope },
     locale: {
-      register: (ns, dicts) => { dictionaries[ns] = dicts.en; return () => {} },
+      register: (ns, localeOrDicts, dict) => {
+        localeRegistrations.push({ ns, localeOrDicts, dict })
+        // Single-locale form is register(ns, 'en', dict); the map form is register(ns, { en, zh }).
+        dictionaries[ns] = typeof localeOrDicts === 'string' ? dict : localeOrDicts.en
+        return () => {}
+      },
       bind: (ns) => (key, params) => {
         const template = dictionaries[ns]?.[key] ?? key
         return params === undefined ? template
@@ -71,7 +78,7 @@ function loadBundle({ snapshot, credentials }) {
     fakeWindow, {}, {}, () => { throw new Error('no require') },
   )
   bundle.apply(ctx)
-  return { bundle, registered, decorated, submitted, React }
+  return { bundle, registered, decorated, submitted, React, localeRegistrations }
 }
 
 const readySnapshot = {
@@ -109,13 +116,30 @@ function assertRenderable(node, path = 'root') {
 }
 
 test('card registers under the research-keys namespace', () => {
-  const { bundle, registered } = loadBundle({
+  const { bundle, registered, localeRegistrations } = loadBundle({
     snapshot: readySnapshot,
     credentials: { describe: async () => ({ ok: true, value: {} }) },
   })
   assert.deepEqual(bundle.inject, ['slots', 'settingsScope', 'locale', 'remote', 'remote.credentials', 'commandUi', 'sessions'])
   assert.equal(registered.length, 1)
   assert.equal(registered[0].entry.key, 'research-keys')
+  // English only, in the single-locale overload: the locale service resolves
+  // every other language through its per-key fallback. A `{ en, zh }` map here
+  // would shadow later Chinese dictionaries.
+  assert.equal(localeRegistrations.length, 1)
+  const [locale] = localeRegistrations
+  assert.equal(locale.ns, 'research-keys')
+  assert.equal(locale.localeOrDicts, 'en', 'registered through the single-locale form')
+  assert.equal(typeof locale.dict, 'object')
+  assert.ok(locale.dict.card && locale.dict.hint, 'English copy present')
+})
+
+test('client entry exports no values beyond cordis loading', () => {
+  const { bundle } = loadBundle({
+    snapshot: readySnapshot,
+    credentials: { describe: async () => ({ ok: true, value: {} }) },
+  })
+  assert.deepEqual(Object.keys(bundle).sort(), ['apply', 'inject'])
 })
 
 test('card renders nothing before settings are ready', () => {
@@ -178,7 +202,7 @@ test('malformed describe responses cannot reach the render', async () => {
 
 test('bare /feynman opens a subcommand picker matching the host catalog', async () => {
   const { WORKFLOWS, SESSION_COMMANDS } = await import('./prompts.js')
-  const { bundle, decorated, submitted } = loadBundle({
+  const { decorated, submitted } = loadBundle({
     snapshot: readySnapshot,
     credentials: { describe: async () => ({ ok: true, value: {} }) },
   })
@@ -186,6 +210,8 @@ test('bare /feynman opens a subcommand picker matching the host catalog', async 
   assert.equal(decorated[0].name, 'feynman')
   assert.equal(decorated[0].ui.kind, 'popupSelect')
   assert.equal(decorated[0].available({ sessionId: 's' }), true)
+  // The rendered options ARE the assertion: the catalogue stays internal to the
+  // bundle, so this is the only path that can see it.
   const options = await decorated[0].ui.options({ sessionId: 's' }, new AbortController().signal)
   const ids = options.map((o) => o.id)
   // Every host subcommand is pickable, nothing extra.
@@ -197,5 +223,4 @@ test('bare /feynman opens a subcommand picker matching the host catalog', async 
   // A pick submits the completed line back through the host.
   await decorated[0].ui.onSelect(options.find((o) => o.id === 'review'), { sessionId: 's' })
   assert.deepEqual(submitted, ['/feynman review '])
-  assert.ok(bundle.SUBCOMMANDS.length === ids.length, 'exported table matches options')
 })

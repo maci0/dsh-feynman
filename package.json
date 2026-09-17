@@ -1,6 +1,6 @@
 {
   "name": "dsh-feynman",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "main": "index.js",
@@ -8,10 +8,16 @@
   "license": "MIT",
   "exports": {
     ".": "./index.js",
-    "./client": "./lib/client.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
@@ -37,9 +43,14 @@
     "test": "node --test commands.test.js client.test.js"
   },
   "engines": {
-    "node": ">=22.6.0"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-commands": "0.1.6-alpha.1",
+    "@deepseek-ai/dsh-llm": "0.1.6-alpha.1",
     "@deepseek-ai/schemastery": "3.18.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.2"
   }
 }

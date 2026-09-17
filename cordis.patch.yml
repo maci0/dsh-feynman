@@ -1,7 +1,7 @@
-# Row to paste into ~/.dsh/profiles/<profile>/cordis.patch.yml.
-# That file is live-watched; dsh.profile.bundles is frozen at boot.
-# Do not also list this package in dsh.profile.bundles: insert does not
-# dedupe ids, two rows would register the plugin twice.
+# Bundle layer: applied when a profile lists this bundle in dsh.profile.bundles
+# (dsh plugin add does that from dsh.bundle). That list is frozen at boot.
+# Do not also paste this row into the profile's cordis.patch.yml: insert does
+# not dedupe ids, two rows would register the plugin twice.
 - insert:
     - id: feynman
       name: 'dsh-feynman'
