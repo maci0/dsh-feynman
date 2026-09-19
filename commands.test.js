@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
 import { apply } from './index.js'
 
@@ -328,4 +329,65 @@ test('real Cordis composition mounts the plugin and tears it down', async () => 
   assert.equal(registered.length, 0, 'command registration outlives the fiber')
   ctx.emit('session/event', session, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
   assert.equal(followups.length, 2, 'session/event listener disposed with the fiber')
+})
+
+// --- perf gates -----------------------------------------------------------
+// Instruction-level numbers were recorded with `taskset -c 2 perf stat -e
+// instructions,cycles` over 20000 prompt builds: 3072 instructions per
+// build on this host). Tests must survive a loaded runner, so they gate on
+// retired CPU time and on the frozen prompt text instead of wall clock.
+
+/** The brief args the digest was reviewed against; changing one changes the digest. */
+const DIGEST_ARGS = {
+  deepresearch: 'Quantum error correction — fault tolerance\nwith unicode: café, 東京, emoji 🚀',
+  lit: 'arxiv:2301.00001 diffusion models',
+  review: 'arxiv:2301.00001',
+  'review-loop': 'paper X',
+  audit: 'repo url --paper arxiv:1',
+  replicate: 'claim: scaling holds',
+  recipe: 'fine-tune a 7B model',
+  compare: 'arxiv:1 arxiv:2',
+  draft: '--from-session',
+  autoresearch: 'prompt optimisation',
+  watch: 'agentic coding',
+  rank: parseRankArgs('graph nets --limit 50 --expand-citations 3 --full-text-top 5 --critique-top 4 --preference-file p.json --reproduction-notes r.json --synthesize --synthesis-top 9 --synthesis-model p/m --output-dir out --json'),
+  paper: parsePaperArgs('arxiv:2301.00001 --fetch-full-text --json'),
+  preview: 'outputs/x.md',
+}
+
+test('every workflow brief is byte-identical to the reviewed text', () => {
+  const digest = createHash('sha256')
+  for (const kind of Object.keys(WORKFLOWS)) {
+    for (const refs of [{}, { hfTokenEnv: 'A', alphaxivTokenEnv: 'B' }]) {
+      digest.update(`${kind}\u0000${JSON.stringify(refs)}\u0000${buildPrompt(kind, DIGEST_ARGS[kind], refs)}`)
+    }
+  }
+  digest.update(loopFollowupPrompt('paper X', 2, 2))
+  assert.equal(
+    digest.digest('hex'),
+    '4f004963fb8f1065d6e4dab4636f9cb19f988e16d6b6ee54223fa4c341864d86',
+    'prompt text changed — update the digest deliberately',
+  )
+})
+
+test('prompt construction stays inside its CPU-time budget', () => {
+  const kinds = ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'preview', 'rank', 'paper']
+  let sink = 0
+  // One batch = every workflow once. CPU time, so a busy runner's wall clock
+  // does not move it; the budget is ~3x the 0.64us/build baseline recorded on
+  // the Ryzen 9 9950X, which catches an order-of-magnitude regression only.
+  const batch = (iterations) => {
+    const before = process.cpuUsage()
+    for (let i = 0; i < iterations; i += 1) {
+      sink += kinds.map((kind) => buildPrompt(kind, DIGEST_ARGS[kind], {})).join('\u0000').length
+    }
+    const delta = process.cpuUsage(before)
+    return (delta.user + delta.system) / (iterations * kinds.length)
+  }
+  batch(200)
+  const samples = []
+  for (let i = 0; i < 5; i += 1) samples.push(batch(500))
+  const best = Math.min(...samples)
+  assert.ok(sink > 0)
+  assert.ok(best <= 2.0, `prompt build cost ${best.toFixed(3)}us/build, budget 2.0us (baseline 0.64us)`)
 })

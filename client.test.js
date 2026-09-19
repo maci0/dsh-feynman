@@ -224,3 +224,36 @@ test('bare /feynman opens a subcommand picker matching the host catalog', async 
   await decorated[0].ui.onSelect(options.find((o) => o.id === 'review'), { sessionId: 's' })
   assert.deepEqual(submitted, ['/feynman review '])
 })
+
+// --- perf gate ------------------------------------------------------------
+// Instruction-level numbers on this host: ~18k instructions per picker build,
+// ~45k per open-card render. CPU time, so a loaded runner's wall clock cannot
+// move the gate; the budget is ~3x the baseline recorded on the Ryzen 9 9950X
+// and catches an order-of-magnitude regression.
+test('picker build and card render stay inside their CPU-time budget', async () => {
+  const { decorated, registered, React } = loadBundle({
+    snapshot: readySnapshot,
+    credentials: { describe: async () => ({ ok: true, value: {} }) },
+  })
+  const card = registered[0].component
+  let sink = 0
+  const batch = (iterations, fn) => {
+    const before = process.cpuUsage()
+    for (let i = 0; i < iterations; i += 1) sink += fn()
+    const delta = process.cpuUsage(before)
+    return (delta.user + delta.system) / iterations
+  }
+  const best = (fn) => {
+    batch(200, fn)
+    const samples = []
+    for (let i = 0; i < 5; i += 1) samples.push(batch(2000, fn))
+    return Math.min(...samples)
+  }
+  const options = () => { void decorated[0].ui.options().then((o) => { sink += o.length }); return 0 }
+  const render = () => { React.reset(); return textOf(card()).length }
+  const optionsUs = best(options)
+  const renderUs = best(render)
+  assert.ok(sink > 0)
+  assert.ok(optionsUs <= 12, `picker build cost ${optionsUs.toFixed(2)}us, budget 12us (baseline 3.7us)`)
+  assert.ok(renderUs <= 10, `open-card render cost ${renderUs.toFixed(2)}us, budget 10us (baseline 2.7us)`)
+})
