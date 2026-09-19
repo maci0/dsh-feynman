@@ -83,12 +83,8 @@ Row config in the Loader entry:
 |---|---|---|
 | `hfTokenEnv` | `HF_TOKEN` | Env-var name holding the Hugging Face key. |
 | `alphaxivTokenEnv` | `ALPHAXIV_API_KEY` | Env-var name holding the AlphaXiv key. |
-| `loopDefaultRounds` | `3` | Rounds `/feynman review-loop` runs when none are given. |
-| `loopMaxRounds` | `10` | Upper bound for an explicit round count. |
-| `rankLimitDefault` | `20` | `/feynman rank` papers when `--limit` is absent. |
-| `rankLimitCap` | `100` | Upper bound for `--limit`. |
 
-A deployment can widen the review loop or raise the rank limit without a code edit. Invalid values fail at load: refs must match `[A-Za-z_][A-Za-z0-9_]*`, bounds must be positive integers, and a default may not exceed its cap.
+Loop and rank cadences are fixed in code: `/feynman review-loop` runs 3 rounds by default with a cap of 10, and `/feynman rank` lists 20 papers by default with a cap of 100.
 
 Keys, in precedence order (environment shadows the store):
 

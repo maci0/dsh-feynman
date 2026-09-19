@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slugify, stripArxivPrefix, stripArxivPrefixes, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
+import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
 import { apply } from './index.js'
 
 // Every Feynman workflow slash command is mapped.
@@ -50,8 +50,8 @@ test('arxiv: prefix normalizes to the bare ID everywhere it matters', () => {
   assert.equal(WORKFLOWS.paper.prompt({ id: 'arxiv:2401.12345' }), WORKFLOWS.paper.prompt({ id: '2401.12345' }))
 })
 test('arxiv: prefixes normalize inside ID lists, flags survive', () => {
-  assert.equal(stripArxivPrefixes('arxiv:2401.12345 arxiv:2402.67890'), '2401.12345 2402.67890')
-  assert.equal(stripArxivPrefixes('scaling laws'), 'scaling laws')
+  assert.equal(stripArxivPrefix('arxiv:2401.12345 arxiv:2402.67890'), '2401.12345 2402.67890')
+  assert.equal(stripArxivPrefix('scaling laws'), 'scaling laws')
   assert.equal(WORKFLOWS.compare.prompt('arxiv:2401.12345 arxiv:2402.67890'), WORKFLOWS.compare.prompt('2401.12345 2402.67890'))
   assert.ok(WORKFLOWS.draft.prompt('--from-session').includes('--from-session'), 'draft flag survives')
 })
@@ -118,13 +118,11 @@ test('settings namespace serves row config as base', () => {
     on: () => () => {},
     get: () => undefined,
     inject: (deps, cb) => { if (deps.includes('settings')) cb({ settings: fakeSettings }) },
-  }, { hfTokenEnv: 'CUSTOM_HF', loopMaxRounds: 12 })
+  }, { hfTokenEnv: 'CUSTOM_HF' })
   assert.equal(captured.ns, 'research-keys')
-  // Row config is the base layer for the refs and for the loop/rank tunables,
-  // which ride the same exported Config schema with their defaults.
+  // Row config is the base layer for the refs the settings card edits.
   assert.deepEqual(captured.resolved, {
     hfTokenEnv: 'CUSTOM_HF', alphaxivTokenEnv: 'ALPHAXIV_API_KEY',
-    loopDefaultRounds: 3, loopMaxRounds: 12, rankLimitDefault: 20, rankLimitCap: 100,
   })
   assert.ok(captured.json && typeof captured.json === 'object', 'schema serializes for describe()')
   assert.equal(typeof hooks.setSource, 'function')
@@ -258,50 +256,6 @@ test('review-loop state is per apply instance', async () => {
   assert.ok(leaked.text.includes('No review loop'), 'second instance sees the first instance loop')
   const owned = await first('review-loop stop')
   assert.ok(owned.text.includes('stopped after 0 round'), 'first instance lost its own loop')
-})
-
-// Loop/rank bounds are row-config fields, not code constants: one deployment
-// can widen the loop or raise --limit without an edit.
-test('loop and rank bounds come from row config', async () => {
-  const registered = []
-  const followups = []
-  const agent = { id: 'cfg', session: { id: 'cfg' }, followup: (m) => followups.push(m), inject: () => {} }
-  apply({
-    effect: (fn) => { fn(); return () => {} },
-    commands: { register: (d) => { registered.push(d); return () => {} } },
-    on: () => () => {},
-    get: () => undefined,
-  }, { loopDefaultRounds: 5, loopMaxRounds: 6, rankLimitDefault: 8, rankLimitCap: 9 })
-  const run = (rawInput) => registered[0].handler({ rawInput, agent, attachments: [] })
-  await run('review-loop paper.pdf')
-  assert.ok(followups.at(-1).content[0].text.includes('Round 1 of 5'), 'configured default rounds')
-  await run('review-loop paper.pdf 6')
-  assert.ok(followups.at(-1).content[0].text.includes('Round 1 of 6'), 'configured cap is reachable')
-  await run('review-loop paper.pdf 7')
-  assert.ok(followups.at(-1).content[0].text.includes('Round 1 of 5'), 'above the cap falls back to the default')
-  await run('rank scaling laws')
-  assert.ok(followups.at(-1).content[0].text.includes('up to 8 seed candidates'), 'configured rank default')
-  await run('rank scaling laws --limit 100')
-  assert.ok(followups.at(-1).content[0].text.includes('up to 9 seed candidates'), 'configured rank cap')
-})
-
-test('invalid tunables fail at load', () => {
-  const load = (config) => apply({
-    effect: (fn) => { fn(); return () => {} },
-    commands: { register: () => () => {} },
-    on: () => () => {},
-    get: () => undefined,
-  }, config)
-  for (const config of [
-    { loopDefaultRounds: 0 },
-    { loopMaxRounds: -1 },
-    { rankLimitDefault: 2.5 },
-    { rankLimitCap: 'lots' },
-    { loopDefaultRounds: 5, loopMaxRounds: 4 },
-    { rankLimitDefault: 30, rankLimitCap: 10 },
-  ]) {
-    assert.throws(() => load(config), /\[feynman\]/, `accepted ${JSON.stringify(config)}`)
-  }
 })
 
 // /feynman search does the work it names: mounted seam → real hits, absent

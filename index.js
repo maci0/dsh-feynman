@@ -23,18 +23,12 @@ export const inject = ['commands', 'agents']
 const RESEARCH_KEYS_NAMESPACE = 'research-keys'
 
 /**
- * Deployment tunables plus the two env refs. The credential refs are also the
- * settings-card schema; the loop/rank bounds are the same exported row-config
- * surface so one deployment can widen the loop or raise `--limit` without a
- * code edit.
+ * The two env refs, also the settings-card schema. The loop/rank bounds are
+ * destructured defaults in prompts.js, not config rows: nobody tunes them.
  */
 export const Config = Schema.object({
   hfTokenEnv: Schema.string().role('credential-ref').default('HF_TOKEN'),
   alphaxivTokenEnv: Schema.string().role('credential-ref').default('ALPHAXIV_API_KEY'),
-  loopDefaultRounds: Schema.natural().min(1).default(3),
-  loopMaxRounds: Schema.natural().min(1).default(10),
-  rankLimitDefault: Schema.natural().min(1).default(20),
-  rankLimitCap: Schema.natural().min(1).default(100),
 })
 
 // --- key configuration (Hugging Face + AlphaXiv) ---
@@ -59,28 +53,8 @@ function createState(rawConfig) {
       throw new Error(`[feynman] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
     }
   }
-  const tunables = {
-    defaultRounds: config.loopDefaultRounds,
-    maxRounds: config.loopMaxRounds,
-    limitDefault: config.rankLimitDefault,
-    limitCap: config.rankLimitCap,
-  }
-  // `min`/`max` cannot see NaN — every comparison against it is false — so the
-  // numeric fields get one explicit finiteness check the schema cannot express.
-  for (const [field, value] of Object.entries(tunables)) {
-    if (!Number.isFinite(value)) {
-      throw new Error(`[feynman] ${field} must be a finite number; got ${String(value)}`)
-    }
-  }
-  if (tunables.defaultRounds > tunables.maxRounds) {
-    throw new Error(`[feynman] loopDefaultRounds (${tunables.defaultRounds}) exceeds loopMaxRounds (${tunables.maxRounds})`)
-  }
-  if (tunables.limitDefault > tunables.limitCap) {
-    throw new Error(`[feynman] rankLimitDefault (${tunables.limitDefault}) exceeds rankLimitCap (${tunables.limitCap})`)
-  }
   return {
     refs,
-    tunables,
     // Base layer for the settings namespace: the resolved config, so the card
     // never advertises a value the plugin does not use.
     entry: config,
@@ -219,7 +193,7 @@ function workflowHandler(kind, invocation, state) {
   // Rank and paper parse every flag; unknown --flags are rejected, never absorbed into the topic.
   const parse = PARSERS[kind]
   if (parse) {
-    const parsed = parse(args, state.tunables)
+    const parsed = parse(args)
     if (!(parsed.topic || parsed.id)) return err(usage)
     if (parsed.unsupported.length > 0) {
       return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman ${kind} ${spec.hint}\`.`)
@@ -237,7 +211,7 @@ function workflowHandler(kind, invocation, state) {
 }
 
 function reviewLoopPrompt(invocation, args, state) {
-  const { target, rounds } = parseLoopArgs(args, state.tunables)
+  const { target, rounds } = parseLoopArgs(args)
   if (!target) return null
   state.loops.set(invocation.agent.session.id, { target, rounds, round: 1 })
   const brief = buildPrompt('review-loop', target, liveRefs(state))
