@@ -1,6 +1,6 @@
 {
   "name": "dsh-feynman",
-  "version": "0.13.4",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "main": "index.js",
