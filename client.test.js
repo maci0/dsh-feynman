@@ -228,8 +228,9 @@ test('bare /feynman opens a subcommand picker matching the host catalog', async 
 // --- perf gate ------------------------------------------------------------
 // Instruction-level numbers on this host: ~18k instructions per picker build,
 // ~45k per open-card render. CPU time, so a loaded runner's wall clock cannot
-// move the gate; the budget is ~3x the baseline recorded on the Ryzen 9 9950X
-// and catches an order-of-magnitude regression.
+// move the gate. The budget is a ratio against a fixed in-process yardstick,
+// because an absolute microsecond ceiling that holds on the Ryzen 9 9950X does
+// not hold on a slower CI runner.
 test('picker build and card render stay inside their CPU-time budget', async () => {
   const { decorated, registered, React } = loadBundle({
     snapshot: readySnapshot,
@@ -254,6 +255,29 @@ test('picker build and card render stay inside their CPU-time budget', async () 
   const optionsUs = best(options)
   const renderUs = best(render)
   assert.ok(sink > 0)
-  assert.ok(optionsUs <= 12, `picker build cost ${optionsUs.toFixed(2)}us, budget 12us (baseline 3.7us)`)
-  assert.ok(renderUs <= 10, `open-card render cost ${renderUs.toFixed(2)}us, budget 10us (baseline 2.7us)`)
+
+  // Host-speed yardstick: a fixed slice of plain JS work, measured the same way.
+  const yardstickUs = best(() => {
+    let acc = 0
+    for (let i = 0; i < 200; i += 1) acc += (i * 2654435761) % 97
+    return acc & 1
+  })
+  const optionsRatio = optionsUs / yardstickUs
+  const renderRatio = renderUs / yardstickUs
+  assert.ok(yardstickUs > 0, 'yardstick measured zero')
+  console.log(
+    `feynman-perf: picker ${optionsUs.toFixed(2)}us (${optionsRatio.toFixed(1)}x), `
+    + `render ${renderUs.toFixed(2)}us (${renderRatio.toFixed(1)}x), `
+    + `yardstick ${yardstickUs.toFixed(2)}us`,
+  )
+  assert.ok(
+    optionsRatio <= 8,
+    `picker build cost ${optionsRatio.toFixed(2)}x the yardstick `
+    + `(${optionsUs.toFixed(2)}us vs ${yardstickUs.toFixed(2)}us); limit 8x`,
+  )
+  assert.ok(
+    renderRatio <= 6,
+    `open-card render cost ${renderRatio.toFixed(2)}x the yardstick `
+    + `(${renderUs.toFixed(2)}us vs ${yardstickUs.toFixed(2)}us); limit 6x`,
+  )
 })
