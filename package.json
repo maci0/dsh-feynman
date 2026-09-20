@@ -1,6 +1,6 @@
 {
   "name": "dsh-feynman",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "private": true,
   "type": "module",
   "main": "index.js",
@@ -40,7 +40,8 @@
     "lib/client.js",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "test": "node --test commands.test.js client.test.js"
