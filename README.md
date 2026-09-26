@@ -16,7 +16,7 @@ Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (se
 - **13 session commands** for the housekeeping around that work: logs, jobs, artifact listing, key status, session search, doctor.
 - **A real review loop.** `/feynman review-loop` keeps iterating review → fix → re-review on its own, after every completed turn, until rounds run out. `/feynman review-loop stop` ends it early.
 - **A subcommand picker.** Bare `/feynman` opens a popup; picking a row submits the completed `/feynman <sub> …` line, so nothing has to be memorised.
-- **A Research Keys card** in Settings → Plugins → **Plugin configuration**. Hugging Face and AlphaXiv keys are stored through the credentials domain, never in settings.
+- **A Research Keys card** on the **Plugins** page — open the `dsh-feynman` bundle, then the `feynman` row's **Configure** control. Hugging Face and AlphaXiv keys are stored through the credentials domain, never in settings.
 - **Key-aware briefs.** Every workflow brief names the live credential refs and treats an unset one as blocked instead of guessing.
 
 ## Install
