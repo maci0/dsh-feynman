@@ -46,15 +46,33 @@ const REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
  * previous instance's loops.
  */
 function plainConfig(value) {
-  if (value !== null && typeof value === 'object' && typeof value.get === 'function') return value.get()
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') return plainConfig(value.get())
+  return value
+}
+
+/** Schema input: volatile refs become their current snapshots. The live refs stay on the row. */
+function detachConfig(value) {
+  const plain = plainConfig(value)
+  if (plain !== value) return plain
+  if (Array.isArray(value)) return value.map(detachConfig)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, detachConfig(child)]))
+  }
   return value
 }
 
 function createState(rawConfig) {
-  const config = resolveConfig(rawConfig)
+  const checked = resolveConfig(rawConfig)
+  const read = (field) => {
+    const source = rawConfig !== null && typeof rawConfig === 'object' && Object.hasOwn(rawConfig, field)
+      ? rawConfig[field]
+      : checked[field]
+    const live = plainConfig(source)
+    return typeof live === 'string' ? live : plainConfig(checked[field])
+  }
   const refs = {
-    hfTokenEnv: plainConfig(config.hfTokenEnv),
-    alphaxivTokenEnv: plainConfig(config.alphaxivTokenEnv),
+    hfTokenEnv: read('hfTokenEnv'),
+    alphaxivTokenEnv: read('alphaxivTokenEnv'),
   }
   for (const [field, value] of Object.entries(refs)) {
     if (typeof value !== 'string' || !REF_PATTERN.test(value)) {
@@ -65,8 +83,8 @@ function createState(rawConfig) {
     refs,
     // Live row. v0.1.7 updates volatile fields in place.
     source: () => ({
-      hfTokenEnv: plainConfig(config.hfTokenEnv),
-      alphaxivTokenEnv: plainConfig(config.alphaxivTokenEnv),
+      hfTokenEnv: read('hfTokenEnv'),
+      alphaxivTokenEnv: read('alphaxivTokenEnv'),
     }),
     loops: new Map(),
   }
@@ -79,7 +97,7 @@ function createState(rawConfig) {
  */
 function resolveConfig(rawConfig) {
   try {
-    return Config(rawConfig)
+    return Config(detachConfig(rawConfig))
   } catch (error) {
     throw new Error(`[feynman] ${error instanceof Error ? error.message : String(error)}`)
   }

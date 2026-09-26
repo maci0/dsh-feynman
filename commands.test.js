@@ -102,6 +102,23 @@ test('paper args: flags parsed, multi-word titles kept, unknowns rejected', () =
 })
 
 // Credential refs come from the row. `/feynman doctor` prints the live values.
+test('volatile row refs unwrap before schema validation and stay live', async () => {
+  let handler
+  let hf = 'LIVE_HF'
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (definition) => { handler = definition.handler; return () => {} } },
+    on: () => () => {},
+    get: () => undefined,
+    inject: () => {},
+  }, { hfTokenEnv: { get: () => hf }, alphaxivTokenEnv: { get: () => 'LIVE_AX' } })
+  const first = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.match(first.text, /Hugging Face key \(LIVE_HF\)/)
+  assert.match(first.text, /AlphaXiv key \(LIVE_AX\)/)
+  hf = 'NEXT_HF'
+  const second = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.match(second.text, /Hugging Face key \(NEXT_HF\)/)
+})
 test('row config is the base for credential refs', async () => {
   let handler
   apply({
