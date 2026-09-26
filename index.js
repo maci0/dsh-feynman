@@ -123,7 +123,7 @@ function cardState(ctx) {
     const settings = service(ctx, 'settings')
     if (!settings) return 'settings service absent — card unavailable on minimal profiles'
     settings.get(RESEARCH_KEYS_NAMESPACE)
-    return 'namespace served — card should appear under Plugin configuration'
+    return 'namespace served — the card is on the Plugins page, on the feynman row\'s Configure control'
   } catch (error) {
     return `namespace NOT served (${error instanceof Error ? error.message : String(error)})`
   }
