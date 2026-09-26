@@ -1,10 +1,10 @@
 {
   "name": "dsh-feynman",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, …) for DeepSeek Harness",
+  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, \u2026) for DeepSeek Harness",
   "license": "MIT",
   "exports": {
     ".": "./index.js",
@@ -12,6 +12,7 @@
       "default": "./lib/client.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -25,7 +26,7 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
         "@deepseek-ai/dsh-client-ui-commands",
         "@deepseek-ai/dsh-api-session-controller"
       ]
@@ -35,6 +36,8 @@
     }
   },
   "files": [
+    "icon.svg",
+    "locale/*.json",
     "index.js",
     "prompts.js",
     "lib/client.js",
@@ -64,10 +67,11 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-llm": "0.1.6-alpha.1",
-    "@deepseek-ai/schemastery": "3.18.2"
+    "@deepseek-ai/schemastery": "^3.18.4"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/maci0/dsh-feynman.git"
-  }
+  },
+  "icon": "./icon.svg"
 }

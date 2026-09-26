@@ -101,32 +101,20 @@ test('paper args: flags parsed, multi-word titles kept, unknowns rejected', () =
   assert.deepEqual(parsePaperArgs('--json'), { id: '', fetchFullText: false, json: true, unsupported: [] })
 })
 
-// The research-keys namespace registers with row config as its base layer.
-test('settings namespace serves row config as base', () => {
-  let captured
-  let hooks
-  const fakeSettings = {
-    installSection: (ctx, ns, schema, entry, h) => {
-      captured = { ns, resolved: schema(entry), json: schema.toJSON() }
-      hooks = h
-      h.setSource(() => captured.resolved)
-      h.onChange()
-    },
-  }
+// Credential refs come from the row. `/feynman doctor` prints the live values.
+test('row config is the base for credential refs', async () => {
+  let handler
   apply({
     effect: (fn) => { fn(); return () => {} },
-    commands: { register: () => () => {} },
+    commands: { register: (definition) => { handler = definition.handler; return () => {} } },
     on: () => () => {},
     get: () => undefined,
-    inject: (deps, cb) => { if (deps.includes('settings')) cb({ settings: fakeSettings }) },
+    inject: () => {},
   }, { hfTokenEnv: 'CUSTOM_HF' })
-  assert.equal(captured.ns, 'research-keys')
-  // Row config is the base layer for the refs the settings card edits.
-  assert.deepEqual(captured.resolved, {
-    hfTokenEnv: 'CUSTOM_HF', alphaxivTokenEnv: 'ALPHAXIV_API_KEY',
-  })
-  assert.ok(captured.json && typeof captured.json === 'object', 'schema serializes for describe()')
-  assert.equal(typeof hooks.setSource, 'function')
+  const result = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.equal(result.kind, 'success')
+  assert.match(result.text, /Hugging Face key \(CUSTOM_HF\)/)
+  assert.match(result.text, /AlphaXiv key \(ALPHAXIV_API_KEY\)/)
 })
 test('one /feynman dispatcher covers every subcommand', async () => {
   const registered = []
@@ -158,7 +146,7 @@ test('one /feynman dispatcher covers every subcommand', async () => {
   for (const m of followups) {
     assert.equal(m.role, 'user')
     assert.equal(typeof m.id, 'string')
-    assert.equal(m.source.kind, 'plugin')
+    assert.equal(m.source.kind, 'feynman')
     // Built through createUserMessage: deep-frozen for every consumer downstream.
     assert.ok(Object.isFrozen(m), 'queued message is frozen')
     assert.ok(Object.isFrozen(m.content), 'queued message content is frozen')

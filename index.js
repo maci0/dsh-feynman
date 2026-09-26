@@ -27,8 +27,8 @@ const RESEARCH_KEYS_NAMESPACE = 'research-keys'
  * destructured defaults in prompts.js, not config rows: nobody tunes them.
  */
 export const Config = Schema.object({
-  hfTokenEnv: Schema.string().role('credential-ref').default('HF_TOKEN'),
-  alphaxivTokenEnv: Schema.string().role('credential-ref').default('ALPHAXIV_API_KEY'),
+  hfTokenEnv: Schema.string().role('credential-ref').default('HF_TOKEN').volatile(),
+  alphaxivTokenEnv: Schema.string().role('credential-ref').default('ALPHAXIV_API_KEY').volatile(),
 })
 
 // --- key configuration (Hugging Face + AlphaXiv) ---
@@ -45,20 +45,29 @@ const REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
  * shared by every instance, so a patch reload would re-run apply on top of the
  * previous instance's loops.
  */
+function plainConfig(value) {
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') return value.get()
+  return value
+}
+
 function createState(rawConfig) {
   const config = resolveConfig(rawConfig)
-  const refs = { hfTokenEnv: config.hfTokenEnv, alphaxivTokenEnv: config.alphaxivTokenEnv }
+  const refs = {
+    hfTokenEnv: plainConfig(config.hfTokenEnv),
+    alphaxivTokenEnv: plainConfig(config.alphaxivTokenEnv),
+  }
   for (const [field, value] of Object.entries(refs)) {
-    if (!REF_PATTERN.test(value)) {
+    if (typeof value !== 'string' || !REF_PATTERN.test(value)) {
       throw new Error(`[feynman] ${field} must be an env-var name (letters, digits, underscore); got ${JSON.stringify(value)}`)
     }
   }
   return {
     refs,
-    // Base layer for the settings namespace: the resolved config, so the card
-    // never advertises a value the plugin does not use.
-    entry: config,
-    source: () => refs,
+    // Live row. v0.1.7 updates volatile fields in place.
+    source: () => ({
+      hfTokenEnv: plainConfig(config.hfTokenEnv),
+      alphaxivTokenEnv: plainConfig(config.alphaxivTokenEnv),
+    }),
     loops: new Map(),
   }
 }
@@ -227,8 +236,8 @@ function userMessage(invocation, text) {
   const content = [...invocation.attachments, { type: 'text', text }]
   return createUserMessage({
     content,
-    // Plugin source, not forged 'user': title/outline/activity consumers gate human input on kind === 'user'.
-    source: { kind: 'plugin', plugin: 'feynman', form: 'relay' },
+    // Producer source, not forged 'user': title/outline/activity consumers gate human input on kind === 'user'.
+    source: { kind: 'feynman', form: 'relay' },
   })
 }
 
@@ -364,15 +373,6 @@ async function searchHandler(invocation, ctx) {
 
 export function apply(ctx, config = {}) {
   const state = createState(config)
-
-  // Settings namespace for the browser card: refs only, never secrets.
-  // Row config is the base layer and the fallback when settings is absent.
-  ctx.inject?.(['settings'], (scope) => {
-    scope.settings.installSection(ctx, RESEARCH_KEYS_NAMESPACE, Config, { ...state.entry }, {
-      setSource: (current) => { state.source = current },
-      onChange: () => {},
-    })
-  })
 
   ctx.effect(() => {
     const disposers = []
