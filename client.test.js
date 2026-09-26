@@ -172,6 +172,26 @@ test('open card shows configured badges without leaking literals', async () => {
   const text = textOf(open)
   assert.ok(text.includes('HF_TOKEN') && text.includes('ALPHAXIV_API_KEY'), 'refs shown')
   assert.ok(!text.includes('hf-sk-') && !text.includes('ax-sk-'), 'literal leaked')
+
+  // The visible label is a sibling span, so the password field has to name
+  // itself: a screen reader would otherwise announce two anonymous fields.
+  const inputs = []
+  const collect = (node) => {
+    if (node === null || typeof node !== 'object') return
+    if (Array.isArray(node)) { for (const child of node) collect(child); return }
+    // A panel is a function component; its children only exist once called.
+    if (typeof node.type === 'function') { collect(node.type(node.props)); return }
+    if (node.type === 'input') inputs.push(node)
+    collect(node.children)
+  }
+  collect(open)
+  assert.equal(inputs.length, 2)
+  assert.deepEqual(
+    inputs.map((input) => input.props['aria-label']),
+    // The card already names the credential ref in the visible label; the field
+    // carries that same name so the two cannot drift apart.
+    ['Hugging Face API key (HF_TOKEN) — new value', 'AlphaXiv API key (ALPHAXIV_API_KEY) — new value'],
+  )
 })
 
 // Adversarial describe payloads must degrade to badges, never object children.
