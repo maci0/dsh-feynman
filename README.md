@@ -21,6 +21,12 @@ Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (se
 
 ## Install
 
+> **Install it as a bundle.** `dsh plugin add …` mounts the row from the
+> package's own patch layer, which is what the settings editor can write to. A
+> row added with `--patch` is an overlay: it disappears at the next start, and
+> the Plugins card cannot save into it — the editor refuses a write an overlay
+> would win.
+
 ```sh
 dsh plugin --profile web add github:maci0/dsh-feynman
 dsh plugin --profile web update dsh-feynman   # refresh later

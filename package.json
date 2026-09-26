@@ -1,10 +1,10 @@
 {
   "name": "dsh-feynman",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, …) for DeepSeek Harness",
+  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, \u2026) for DeepSeek Harness",
   "license": "MIT",
   "exports": {
     ".": "./index.js",
