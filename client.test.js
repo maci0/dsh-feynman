@@ -39,7 +39,15 @@ function loadBundle({ snapshot, credentials, servedNamespace }) {
   /** Every locale.register call, so a test can assert the registration shape. */
   const localeRegistrations = []
   const scope = { subscribe: () => () => {}, getSnapshot: () => snapshot }
-  const remote = { credentials, $on: () => () => {} }
+  /** `credentials/reference-updated` handlers the bundle registered. */
+  const credentialHandlers = []
+  const remote = {
+    credentials,
+    $on: (event, handler) => {
+      if (event === 'credentials/reference-updated') credentialHandlers.push(handler)
+      return () => {}
+    },
+  }
   const registered = []
   const decorated = []
   const submitted = []
@@ -89,7 +97,7 @@ function loadBundle({ snapshot, credentials, servedNamespace }) {
     fakeWindow, {}, {}, () => { throw new Error('no require') },
   )
   bundle.apply(ctx)
-  return { bundle, registered, decorated, submitted, React, localeRegistrations, requestedNamespaces }
+  return { bundle, registered, decorated, submitted, React, localeRegistrations, requestedNamespaces, credentialHandlers }
 }
 
 const readySnapshot = {
@@ -243,6 +251,49 @@ test('malformed describe responses cannot reach the render', async () => {
   }
 })
 
+// The reference is settings config, so the user can rename it. Every answer the
+// credentials domain gives describes one reference: a rename must not leave an
+// old answer reporting another reference's state, and an invalidation must
+// re-read the reference the card now shows.
+test('a renamed credential reference drops the old answer and is re-read', async () => {
+  const described = []
+  const snapshot = {
+    status: 'ready',
+    value: { hfTokenEnv: 'HF_TOKEN', alphaxivTokenEnv: 'ALPHAXIV_API_KEY' },
+    user: {},
+    writable: true,
+  }
+  const { registered, React, credentialHandlers } = loadBundle({
+    snapshot,
+    credentials: {
+      describe: async ([ref]) => {
+        described.push(ref)
+        // Only the original reference is configured; the renamed one is not.
+        return { ok: true, value: { [ref]: { configured: ref === 'HF_TOKEN', writable: true } } }
+      },
+    },
+  })
+  const Card = registered[0].component
+  React.reset()
+  Card({ view: 'page' })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  React.reset()
+  assert.ok(textOf(Card({ view: 'page' })).includes('HF_TOKEN: set'), 'the configured reference reads set')
+
+  // The user renames the reference in the settings form; the credentials domain
+  // then reports a change for it.
+  snapshot.value.hfTokenEnv = 'HF_TOKEN_NEW'
+  for (const handler of credentialHandlers) handler('HF_TOKEN')
+  await new Promise((resolve) => setTimeout(resolve, 10))
+
+  assert.ok(described.includes('HF_TOKEN_NEW'), 'the invalidation never asked about the reference the card shows')
+  React.reset()
+  assert.ok(
+    !textOf(Card({ view: 'page' })).includes('HF_TOKEN_NEW: set'),
+    'the card reports set for a reference the credentials domain reports unset',
+  )
+})
+
 test('bare /feynman opens a subcommand picker matching the host catalog', async () => {
   const { WORKFLOWS, SESSION_COMMANDS } = await import('./prompts.js')
   const { decorated, submitted } = loadBundle({
@@ -269,61 +320,110 @@ test('bare /feynman opens a subcommand picker matching the host catalog', async 
 })
 
 // --- perf gate ------------------------------------------------------------
-// Instruction-level numbers on this host: ~18k instructions per picker build,
-// ~45k per open-card render. CPU time, so a loaded runner's wall clock cannot
-// move the gate. The budget is a ratio against a fixed in-process yardstick,
-// because an absolute microsecond ceiling that holds on the Ryzen 9 9950X does
-// not hold on a slower CI runner.
+// CPU time, so a loaded runner's wall clock cannot move the gate.
+//
+// Each measurement is divided by reference work in the same resource class,
+// timed next to it in the same window. The old denominator was a pure-ALU loop: it
+// allocates nothing, so a host under memory/GC contention slowed the card
+// render 2-3x while leaving the yardstick flat (1.7us), and the gate tripped on
+// contention alone (17-31x against a 16x limit). Both halves of a pair now
+// allocate elements through the same React stub, or map the same catalogue into
+// option objects, and are timed in the same window, so contention lands on both
+// of them and divides out; only the measured path's own growth moves a ratio.
 test('picker build and card render stay inside their CPU-time budget', async () => {
+  const { WORKFLOWS, SESSION_COMMANDS } = await import('./prompts.js')
   const { decorated, registered, React } = loadBundle({
     snapshot: readySnapshot,
     credentials: { describe: async () => ({ ok: true, value: {} }) },
   })
   const card = registered[0].component
   let sink = 0
-  const batch = (iterations, fn) => {
-    const before = process.cpuUsage()
-    for (let i = 0; i < iterations; i += 1) sink += fn()
-    const delta = process.cpuUsage(before)
-    return (delta.user + delta.system) / iterations
+
+  // Picker reference: the same catalogue-length map of option objects through
+  // the same promise path, at a fixed per-row cost.
+  const catalogSize = Object.keys(WORKFLOWS).length + Object.keys(SESSION_COMMANDS).length
+  const REFERENCE_ROWS = Array.from({ length: catalogSize }, (_, i) => [`ref-${i}`, '<arg>', `detail ${i}`])
+  const referenceOptions = () => {
+    void Promise.resolve(REFERENCE_ROWS.map(([id, hint, detail]) => ({
+      id,
+      label: hint ? `/feynman ${id} ${hint}` : `/feynman ${id}`,
+      ...(detail === undefined ? {} : { detail }),
+    }))).then((o) => { sink += o.length })
+    return 0
   }
-  const best = (fn) => {
-    batch(200, fn)
-    const samples = []
-    for (let i = 0; i < 5; i += 1) samples.push(batch(2000, fn))
-    return Math.min(...samples)
+
+  // Render reference: one key row's shape through the same stub — the same
+  // hooks and a fixed element tree, at a fixed size.
+  function ReferenceRow() {
+    React.useState('')
+    React.useState(null)
+    React.useState(false)
+    return React.createElement(
+      'div',
+      { className: 'ref-field' },
+      React.createElement('span', { className: 'ref-label' }, 'reference'),
+      React.createElement('span', { className: 'ref-badge' }, 'ref: set'),
+      React.createElement(
+        'div',
+        { className: 'ref-row' },
+        React.createElement('input', { type: 'password', value: '' }),
+        React.createElement('button', { type: 'button' }, 'Save'),
+        React.createElement('button', { type: 'button' }, 'Clear'),
+      ),
+      React.createElement('div', { className: 'ref-hint' }, 'reference hint'),
+    )
   }
+
   const options = () => { void decorated[0].ui.options().then((o) => { sink += o.length }); return 0 }
   const render = () => { React.reset(); return textOf(card()).length }
-  const optionsUs = best(options)
-  const renderUs = best(render)
-  assert.ok(sink > 0)
+  const referenceRender = () => { React.reset(); return textOf(React.createElement(ReferenceRow)).length }
 
-  // Host-speed yardstick: a fixed slice of plain JS work, measured the same way.
-  const yardstickUs = best(() => {
-    let acc = 0
-    for (let i = 0; i < 200; i += 1) acc += (i * 2654435761) % 97
-    return acc & 1
-  })
-  const optionsRatio = optionsUs / yardstickUs
-  const renderRatio = renderUs / yardstickUs
-  assert.ok(yardstickUs > 0, 'yardstick measured zero')
+  const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)]
+  /**
+   * Median of paired samples: each measured block is timed next to a reference
+   * block, so host contention lands on both halves of a pair. Blocks of a few
+   * calls amortise `process.cpuUsage`'s microsecond resolution, which on a
+   * single call quantises a 10us measurement into 10% steps.
+   */
+  const pairedRatio = (measure, reference, samples, iterations) => {
+    const run = (fn, times) => { for (let i = 0; i < times; i += 1) sink += fn() }
+    run(measure, iterations * 20)
+    run(reference, iterations * 20)
+    const ratios = []
+    for (let i = 0; i < samples; i += 1) {
+      const before = process.cpuUsage()
+      run(measure, iterations)
+      const middle = process.cpuUsage()
+      run(reference, iterations)
+      const after = process.cpuUsage()
+      const measured = (middle.user - before.user) + (middle.system - before.system)
+      const base = (after.user - middle.user) + (after.system - middle.system)
+      if (base > 0) ratios.push(measured / base)
+    }
+    return median(ratios)
+  }
+
+  // The picker call is ~10us, so 10-call blocks keep the microsecond resolution
+  // under 1%; the render call is ~30us and needs no batching.
+  const optionsRatio = pairedRatio(options, referenceOptions, 1000, 10)
+  const renderRatio = pairedRatio(render, referenceRender, 4000, 1)
+  assert.ok(sink > 0)
   console.log(
-    `feynman-perf: picker ${optionsUs.toFixed(2)}us (${optionsRatio.toFixed(1)}x), `
-    + `render ${renderUs.toFixed(2)}us (${renderRatio.toFixed(1)}x), `
-    + `yardstick ${yardstickUs.toFixed(2)}us`,
+    `feynman-perf: picker ${optionsRatio.toFixed(2)}x the reference build, `
+    + `render ${renderRatio.toFixed(2)}x the reference render`,
   )
+  // Both sides of this ratio map the same catalogue through the same promise,
+  // so it sits at 1.00; 1.2x is a 20% budget on the whole call (the promise path
+  // is fixed, so that allows the map itself roughly half again as much work).
   assert.ok(
-    optionsRatio <= 8,
-    `picker build cost ${optionsRatio.toFixed(2)}x the yardstick `
-    + `(${optionsUs.toFixed(2)}us vs ${yardstickUs.toFixed(2)}us); limit 8x`,
+    optionsRatio <= 1.2,
+    `picker build cost ${optionsRatio.toFixed(2)}x the reference build; limit 1.2x`,
   )
-  // The observed range on the authoring machine is 9-11x, so a 10x gate tripped
-  // on its own noise about one run in three. 16x still fails a real regression —
-  // a doubled render — while tolerating the process-to-process spread.
+  // Recorded range for this ratio on a loaded host: 9.7-10.5x. 16x still fails
+  // a real regression — a doubled render measures 18.7-19.5x — while leaving
+  // half again as much room for the process-to-process spread.
   assert.ok(
     renderRatio <= 16,
-    `open-card render cost ${renderRatio.toFixed(2)}x the yardstick `
-    + `(${renderUs.toFixed(2)}us vs ${yardstickUs.toFixed(2)}us); limit 16x`,
+    `open-card render cost ${renderRatio.toFixed(2)}x the reference render; limit 16x`,
   )
 })

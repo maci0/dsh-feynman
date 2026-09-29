@@ -114,7 +114,7 @@ Keys, in precedence order (environment shadows the store):
 Plain JavaScript, no build step. `index.js` is the host half, `prompts.js` is the pure workflow catalog (no harness imports), `lib/client.js` is the browser half.
 
 ```sh
-npm test    # node --test commands.test.js client.test.js (Node ^22.19 || >=24)
+npm test    # node --test commands.test.js client.test.js composition.test.js (Node ^22.19 || >=24)
 ```
 
 Coverage: prompt construction, dispatcher registration for every subcommand, review-loop rounds through the agents registry, per-instance loop state, row-config bounds and their validation failures, session search against a fake seam, and the card's registration, ready-gating, and non-leaking of key literals.

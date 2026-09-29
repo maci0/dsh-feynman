@@ -442,21 +442,52 @@ test('every workflow brief is byte-identical to the reviewed text', () => {
 test('prompt construction stays inside its CPU-time budget', () => {
   const kinds = ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'preview', 'rank', 'paper']
   let sink = 0
-  // One batch = every workflow once. CPU time, so a busy runner's wall clock
-  // does not move it; the budget is ~3x the 0.64us/build baseline recorded on
-  // the Ryzen 9 9950X, which catches an order-of-magnitude regression only.
-  const batch = (iterations) => {
-    const before = process.cpuUsage()
+  // One batch = every workflow once. The denominator is a fixed reference that
+  // builds the same shape of text (per-workflow concatenation, joined) without
+  // the builder, and both halves of a pair are timed in the same window. The
+  // old gate divided by nothing: an absolute 2.0us/build budget against a
+  // 0.64us baseline relies on the host being quiet, and a loaded host tripped
+  // it on contention alone (2.198us/build). String assembly is what both sides
+  // spend, so contention lands on both and divides out.
+  const REFERENCE_LINES = 20
+  const measuredBatch = (iterations) => {
     for (let i = 0; i < iterations; i += 1) {
       sink += kinds.map((kind) => buildPrompt(kind, DIGEST_ARGS[kind], {})).join('\u0000').length
     }
-    const delta = process.cpuUsage(before)
-    return (delta.user + delta.system) / (iterations * kinds.length)
   }
-  batch(200)
-  const samples = []
-  for (let i = 0; i < 5; i += 1) samples.push(batch(500))
-  const best = Math.min(...samples)
+  const referenceBatch = (iterations) => {
+    for (let i = 0; i < iterations; i += 1) {
+      sink += kinds.map((kind) => {
+        let text = ''
+        for (let line = 0; line < REFERENCE_LINES; line += 1) text += `reference ${kind} line ${line}\n`
+        return text
+      }).join('\u0000').length
+    }
+  }
+  const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)]
+  const pairedRatio = (measure, reference, samples, iterations) => {
+    measure(20)
+    reference(20)
+    const ratios = []
+    for (let i = 0; i < samples; i += 1) {
+      const before = process.cpuUsage()
+      measure(iterations)
+      const middle = process.cpuUsage()
+      reference(iterations)
+      const after = process.cpuUsage()
+      const measured = (middle.user - before.user) + (middle.system - before.system)
+      const base = (after.user - middle.user) + (after.system - middle.system)
+      if (base > 0) ratios.push(measured / base)
+    }
+    return median(ratios)
+  }
+  const ratio = pairedRatio(measuredBatch, referenceBatch, 400, 10)
   assert.ok(sink > 0)
-  assert.ok(best <= 2.0, `prompt build cost ${best.toFixed(3)}us/build, budget 2.0us (baseline 0.64us)`)
+  console.log(`feynman-prompt: ${ratio.toFixed(2)}x the reference assembly`)
+  // Recorded range for this ratio: 1.75-2.10x; 3.2x is a 55% budget that still
+  // fails a doubled batch.
+  assert.ok(
+    ratio <= 3.2,
+    `prompt build cost ${ratio.toFixed(2)}x the reference assembly; limit 3.2x`,
+  )
 })
