@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
@@ -298,6 +298,70 @@ test('an unmounted session-query seam is an error, not a fake success', async ()
   const result = await handler({ rawInput: 'search anything', agent: {}, attachments: [] })
   assert.equal(result.kind, 'error', 'must not claim work it did not do')
   assert.ok(result.text.includes('not mounted'))
+})
+
+// /feynman doctor must read the settings service the harness actually mounts
+// (`SettingsForms`): `describe()` lists one descriptor per configurable row and
+// carries no `get`. Probing `settings.get(ns)` throws on that surface, so the
+// doctor reported the card namespace unserved even while the card was mounted.
+/** The settings service surface the harness exposes: methods only, no `get`. */
+const describeSettings = (ns) => ({
+  describe: () => [{ ns, autoGenerate: true, schema: {}, value: {}, revision: 0, applies: 'live' }],
+  update: async () => {},
+})
+
+let cardHandler
+let cardServices
+beforeEach(() => {
+  let handler
+  cardServices = {}
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: (key) => cardServices[key],
+    inject: () => {},
+  }, {})
+  cardHandler = handler
+})
+const cardLineOf = (text) => text.split('\n').find((line) => line.includes('Config card:')) ?? ''
+
+test('/feynman doctor reports the card namespace served against the real settings surface', async () => {
+  cardServices.settings = describeSettings('feynman')
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.equal(result.kind, 'success')
+  assert.match(cardLineOf(result.text), /namespace served/, `/feynman doctor misread the settings surface: ${cardLineOf(result.text)}`)
+})
+
+test('a settings service serving another namespace still reports NOT served', async () => {
+  cardServices.settings = describeSettings('someone-else')
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.match(cardLineOf(result.text), /namespace NOT served/, 'an unserved namespace must not be reported as served')
+})
+
+test('a settings service that cannot be queried reports NOT served, never a crash', async () => {
+  cardServices.settings = {
+    describe: () => { throw new Error('settings document is unavailable') },
+    update: async () => {},
+  }
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.equal(result.kind, 'success')
+  assert.match(cardLineOf(result.text), /namespace NOT served \(settings document is unavailable\)/)
+})
+
+test('an absent settings service reports the card as unavailable, not unserved', async () => {
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  assert.match(cardLineOf(result.text), /settings service absent/)
+})
+
+test('the card state answers the real surface end to end through /keys', async () => {
+  cardServices.settings = describeSettings('feynman')
+  const keys = await cardHandler({ rawInput: 'keys', agent: { session: { id: 's' } } })
+  assert.match(keys.text, /namespace served/, '/keys misread the settings surface')
+  // /status names key state and the model route; the card line belongs to
+  // /keys and /doctor only, so it must not grow one by accident.
+  const status = await cardHandler({ rawInput: 'status', agent: { session: { id: 's' } } })
+  assert.ok(!status.text.includes('Config card'), '/status gained a card line')
 })
 
 // docs/testing.md:37-41 — a real in-process Cordis composition, not a

@@ -33,7 +33,7 @@ function createReactStub() {
 }
 
 /** Load the factory the way the client module system does. */
-function loadBundle({ snapshot, credentials }) {
+function loadBundle({ snapshot, credentials, servedNamespace }) {
   const React = createReactStub()
   const dictionaries = {}
   /** Every locale.register call, so a test can assert the registration shape. */
@@ -43,8 +43,19 @@ function loadBundle({ snapshot, credentials }) {
   const registered = []
   const decorated = []
   const submitted = []
+  const requestedNamespaces = []
+  // The settings domain serves one form per mounted row, keyed by the row id.
+  // A `servedNamespace` narrows this stub to that one namespace: any other
+  // `configForms.get` resolves to a form the Host never serves.
   const ctx = {
-    configForms: { get: () => scope },
+    configForms: {
+      get: (namespace) => {
+        requestedNamespaces.push(namespace)
+        return servedNamespace === undefined || namespace === servedNamespace
+          ? scope
+          : { subscribe: () => () => {}, getSnapshot: () => ({ status: 'unavailable', value: null, writable: true }) }
+      },
+    },
     locale: {
       register: (ns, localeOrDicts, dict) => {
         localeRegistrations.push({ ns, localeOrDicts, dict })
@@ -78,7 +89,7 @@ function loadBundle({ snapshot, credentials }) {
     fakeWindow, {}, {}, () => { throw new Error('no require') },
   )
   bundle.apply(ctx)
-  return { bundle, registered, decorated, submitted, React, localeRegistrations }
+  return { bundle, registered, decorated, submitted, React, localeRegistrations, requestedNamespaces }
 }
 
 const readySnapshot = {
@@ -192,6 +203,22 @@ test('open card shows configured badges without leaking literals', async () => {
     // carries that same name so the two cannot drift apart.
     ['Hugging Face API key (HF_TOKEN) — new value', 'AlphaXiv API key (ALPHAXIV_API_KEY) — new value'],
   )
+})
+
+// The settings domain serves one form per mounted row, keyed by the row id
+// (`feynman`, the id in this package's cordis.patch.yml). A form requested
+// under any other namespace never reaches `ready`, so the card the README
+// documents on the row's Configure control would never render.
+test('the card binds the settings namespace its own row serves', () => {
+  const { registered, requestedNamespaces } = loadBundle({
+    snapshot: readySnapshot,
+    servedNamespace: 'feynman',
+    credentials: { describe: async () => ({ ok: true, value: {} }) },
+  })
+  assert.deepEqual(requestedNamespaces, ['feynman'], 'the card asked for a namespace no row serves')
+  const page = registered[0].component({ view: 'page' })
+  assert.ok(page !== null && page !== undefined, 'the Configure page renders while the namespace is served')
+  assert.ok(textOf(page).includes('HF_TOKEN'), 'the served refs reach the form')
 })
 
 // Adversarial describe payloads must degrade to badges, never object children.

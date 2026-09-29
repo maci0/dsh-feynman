@@ -19,8 +19,12 @@ export const name = 'feynman'
 // without 'agents' the lookup misses and rounds after the first never queue.
 export const inject = ['commands', 'agents']
 
-/** Settings namespace the browser card edits: key refs only, never secrets. */
-const RESEARCH_KEYS_NAMESPACE = 'research-keys'
+/**
+ * The settings entry the browser card reads: the settings domain keys one form
+ * per mounted row, so this is the row id in `cordis.patch.yml`, not a namespace
+ * the host registers itself.
+ */
+const RESEARCH_KEYS_NAMESPACE = 'feynman'
 
 /**
  * The two env refs, also the settings-card schema. The loop/rank bounds are
@@ -122,8 +126,16 @@ function cardState(ctx) {
   try {
     const settings = service(ctx, 'settings')
     if (!settings) return 'settings service absent — card unavailable on minimal profiles'
-    settings.get(RESEARCH_KEYS_NAMESPACE)
-    return 'namespace served — the card is on the Plugins page, on the feynman row\'s Configure control'
+    // The service the harness mounts (`SettingsForms`) has no `get`: it lists
+    // one descriptor per configurable row through `describe()`. Probing for a
+    // `get` method threw a TypeError, which read as an unserved namespace even
+    // while the card was mounted.
+    const descriptors = typeof settings.describe === 'function' ? settings.describe() : undefined
+    const served = Array.isArray(descriptors)
+      && descriptors.some((descriptor) => descriptor?.ns === RESEARCH_KEYS_NAMESPACE)
+    return served
+      ? 'namespace served — the card is on the Plugins page, on the feynman row\'s Configure control'
+      : 'namespace NOT served'
   } catch (error) {
     return `namespace NOT served (${error instanceof Error ? error.message : String(error)})`
   }
