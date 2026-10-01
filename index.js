@@ -293,11 +293,18 @@ function logHandler(invocation) {
 
 function jobsHandler(invocation, ctx) {
   const lines = []
-  try {
-    const jobs = service(ctx, 'jobs')?.list?.(invocation.agent.id) ?? []
-    lines.push(jobs.length ? `Background jobs (${jobs.length}):` : 'No background jobs running.')
-    for (const job of jobs.slice(0, 20)) lines.push(`- ${job.id}: ${job.label} [${job.status}]`)
-  } catch { lines.push('Job state is unavailable in this composition.') }
+  const registry = service(ctx, 'jobs')
+  if (typeof registry?.list !== 'function') {
+    lines.push('Job state is unavailable: the jobs seam is not mounted in this profile.')
+  } else {
+    try {
+      const jobs = registry.list(invocation.agent.id)
+      lines.push(jobs.length ? `Background jobs (${jobs.length}):` : 'No background jobs.')
+      for (const job of jobs.slice(0, 20)) lines.push(`- ${job.id}: ${job.label} [${job.status}]`)
+    } catch (error) {
+      lines.push(`Job state is unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   lines.push('Durable artifacts: outputs/<slug>-baseline.md (watch), autoresearch.md + autoresearch.jsonl (autoresearch).')
   return { kind: 'success', text: lines.join('\n') }
 }
