@@ -1,7 +1,7 @@
 /**
  * Pure Feynman workflow catalog: slash-command metadata and the agent prompts
  * each command steers with. No DeepSeek Harness imports here, so this module
- * is unit-testable with plain node.
+ * is unit-testable without the harness.
  *
  * Source of truth for behavior: https://www.feynman.is/docs (workflows, agents,
  * tools, slash-commands, cli-commands references).
