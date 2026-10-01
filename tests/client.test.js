@@ -353,6 +353,38 @@ test('a renamed reference is re-read without an invalidation and shows unknown m
   assert.ok(textOf(Card({ view: 'page' })).includes('HF_RENAMED: set'))
 })
 
+// A lookup that fails says nothing about the key: reading it as "not set"
+// would fake an empty state the user then acts on.
+test('a failed credentials lookup reads unknown, never not set', async () => {
+  const cases = [
+    [async () => { throw new Error('credentials file unreadable') }, 'credentials file unreadable'],
+    [async () => ({ ok: false, error: { code: 'E', message: 'store offline' } }), 'store offline'],
+    [async () => ({ ok: true, value: {} }), undefined],
+  ]
+  for (const [describe, reason] of cases) {
+    const { registered, React } = loadBundle({ snapshot: readySnapshot, credentials: { describe } })
+    const Card = registered[0].component
+    React.reset()
+    Card({ view: 'page' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    React.reset()
+    const page = Card({ view: 'page' })
+    const text = textOf(page)
+    assert.ok(!text.includes('not set'), `a failed lookup read as not set: ${text}`)
+    assert.ok(text.includes('HF_TOKEN: unknown'), text)
+    const badges = []
+    const collect = (node) => {
+      if (node === null || typeof node !== 'object') return
+      if (Array.isArray(node)) { for (const child of node) collect(child); return }
+      if (typeof node.type === 'function') { collect(node.type(node.props)); return }
+      if (node.props.className === 'rk-badge') badges.push(node)
+      collect(node.children)
+    }
+    collect(page)
+    assert.equal(badges[0].props.title, reason, 'the failure rides the badge tooltip')
+  }
+})
+
 test('bare /feynman opens a subcommand picker matching the host catalog', async () => {
   const { WORKFLOWS, SESSION_COMMANDS } = await import('../prompts.js')
   const { decorated, submitted } = loadBundle({

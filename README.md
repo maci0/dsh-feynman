@@ -75,7 +75,7 @@ A value that is not an env-var name (letters, digits, underscore) fails the row 
 
 Keys, in precedence order (environment shadows the store):
 
-1. **Config card**: password field per key, set/unset badge, Save, Clear.
+1. **Config card**: password field per key, set/unset badge (unknown, with the reason as a tooltip, when the lookup fails), Save, Clear.
 2. **Shell**: `export HF_TOKEN=hf_… ALPHAXIV_API_KEY=…` before launch.
 3. **Command**: `/feynman keys` shows status without echoing values; `/feynman keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
 
