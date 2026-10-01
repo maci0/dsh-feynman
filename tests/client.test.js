@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = join(dirname(fileURLToPath(import.meta.url)))
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const src = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
 
 /** Installed version from package.json: the card header must show it. */
@@ -295,7 +295,7 @@ test('a renamed credential reference drops the old answer and is re-read', async
 })
 
 test('bare /feynman opens a subcommand picker matching the host catalog', async () => {
-  const { WORKFLOWS, SESSION_COMMANDS } = await import('./prompts.js')
+  const { WORKFLOWS, SESSION_COMMANDS } = await import('../prompts.js')
   const { decorated, submitted } = loadBundle({
     snapshot: readySnapshot,
     credentials: { describe: async () => ({ ok: true, value: {} }) },
@@ -331,7 +331,7 @@ test('bare /feynman opens a subcommand picker matching the host catalog', async 
 // option objects, and are timed in the same window, so contention lands on both
 // of them and divides out; only the measured path's own growth moves a ratio.
 test('picker build and card render stay inside their CPU-time budget', async () => {
-  const { WORKFLOWS, SESSION_COMMANDS } = await import('./prompts.js')
+  const { WORKFLOWS, SESSION_COMMANDS } = await import('../prompts.js')
   const { decorated, registered, React } = loadBundle({
     snapshot: readySnapshot,
     credentials: { describe: async () => ({ ok: true, value: {} }) },
