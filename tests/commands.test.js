@@ -238,6 +238,30 @@ test('subcommands that queue no message refuse attachments instead of dropping t
   }
 })
 
+// JobRegistry.list(caller?: SessionId) returns the caller's own jobs plus
+// unowned ones; any other caller value sees only the unowned jobs.
+test('/feynman jobs lists the jobs this session owns', async () => {
+  let handler
+  const jobs = [
+    { id: 'shell-1', label: 'train', status: 'running', owner: 'sess-1' },
+    { id: 'shell-2', label: 'other session', status: 'running', owner: 'sess-2' },
+  ]
+  const registry = {
+    list: (caller) => jobs.filter((job) => job.owner === undefined || job.owner === caller),
+  }
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: (key) => key === 'jobs' ? registry : undefined,
+  }, {})
+  const agent = { id: 'sess-1', session: { id: 'sess-1' } }
+  const result = await handler({ rawInput: 'jobs', agent, attachments: [] })
+  assert.equal(result.kind, 'success')
+  assert.match(result.text, /shell-1: train \[running\]/)
+  assert.ok(!result.text.includes('shell-2'), 'another session\'s job leaked')
+})
+
 // The round count is capped at 10, not absorbed into the artifact name.
 test('review-loop clamps an out-of-range round count to the cap', async () => {
   let handler
