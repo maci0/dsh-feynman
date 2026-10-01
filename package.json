@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "Feynman-style research workflows for DeepSeek Harness behind one /feynman command (deepresearch, review, audit, review-loop, …)",
+  "description": "Feynman-style research workflows for DeepSeek Harness behind one /feynman command (deepresearch, review, audit, review-loop, \u2026)",
   "license": "MIT",
   "exports": {
     ".": "./index.js",
@@ -47,7 +47,8 @@
     "NOTICE"
   ],
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "test:node": "node --test tests/*.test.*"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
