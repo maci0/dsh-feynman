@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "Feynman-style research workflow slash commands (/review, /audit, /review-loop, …) for DeepSeek Harness",
+  "description": "Feynman-style research workflows for DeepSeek Harness behind one /feynman command (deepresearch, review, audit, review-loop, …)",
   "license": "MIT",
   "exports": {
     ".": "./index.js",
