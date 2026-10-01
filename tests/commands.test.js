@@ -375,6 +375,14 @@ test('a review-loop round that does not complete ends the loop', async () => {
   }
 })
 
+// Loop state is keyed by session id; a session disposed before its round
+// completes must not keep its entry until the plugin unloads.
+test('a disposed session drops its review-loop state', async () => {
+  const loop = loopHarness()
+  await loop.run('review-loop paper.pdf 3')
+  loop.listeners['session/disposed'](loop.session)
+  assert.ok((await loop.run('review-loop stop')).text.includes('No review loop'), 'the disposed session kept its loop')
+})
 
 // Plugin state is per apply instance: a second load must not see the first
 // instance's loops (module-level state would leak across a patch reload).
