@@ -119,11 +119,7 @@ npm test    # node --test tests/*.test.js (Node ^22.19 || >=24)
 
 Coverage: prompt construction, dispatcher registration for every subcommand, review-loop rounds through the agents registry, per-instance loop state, row-config bounds and their validation failures, session search against a fake seam, and the card's registration, ready-gating, and non-leaking of key literals.
 
-For a one-shot boot without installing:
-
-```sh
-pnpm dsh web --patch /path/to/dsh-feynman/cordis.local.yml
-```
+For local development, `dsh plugin --profile <name> add <path-to-checkout>`.
 
 ## Licence
 
