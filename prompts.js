@@ -249,7 +249,7 @@ export const WORKFLOWS = {
     prompt: REVIEW_PROMPT,
   },
   'review-loop': {
-    description: 'Bounded review→fix→re-review loop until findings shrink or rounds run out',
+    description: 'Bounded review→fix→re-review loop for a fixed number of rounds (stop ends it early)',
     hint: '<arXiv-ID | URL | file> [rounds=3] | stop',
     prompt: REVIEW_PROMPT,
   },
