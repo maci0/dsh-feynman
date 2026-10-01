@@ -294,7 +294,7 @@ function logHandler(invocation) {
 function jobsHandler(invocation, ctx) {
   const lines = []
   try {
-    const jobs = service(ctx, 'jobs')?.list?.(invocation.agent) ?? []
+    const jobs = service(ctx, 'jobs')?.list?.(invocation.agent.id) ?? []
     lines.push(jobs.length ? `Background jobs (${jobs.length}):` : 'No background jobs running.')
     for (const job of jobs.slice(0, 20)) lines.push(`- ${job.id}: ${job.label} [${job.status}]`)
   } catch { lines.push('Job state is unavailable in this composition.') }
