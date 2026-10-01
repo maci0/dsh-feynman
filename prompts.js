@@ -18,17 +18,19 @@ export function stripArxivPrefix(text) {
   return text.replace(/arxiv:\s*/gi, '').trim()
 }
 
+/** Review-loop rounds when the command names none. */
+const DEFAULT_LOOP_ROUNDS = 3
+/** Upper bound on review-loop rounds; a larger count is clamped to it. */
+const MAX_LOOP_ROUNDS = 10
+
 /**
- * Split `/review-loop <target> [rounds]` trailing round count.
+ * Split `/review-loop <target> [rounds]` trailing round count, clamped to 1..MAX_LOOP_ROUNDS.
  * @param rawInput - text after `/feynman review-loop`.
  */
 export function parseLoopArgs(rawInput) {
   const match = /^(.*?)\s+(\d+)$/.exec(rawInput.trim())
-  if (match) {
-    const rounds = Number(match[2])
-    if (rounds >= 1 && rounds <= 10) return { target: match[1], rounds }
-  }
-  return { target: rawInput.trim(), rounds: 3 }
+  if (match) return { target: match[1], rounds: Math.min(Math.max(Number(match[2]), 1), MAX_LOOP_ROUNDS) }
+  return { target: rawInput.trim(), rounds: DEFAULT_LOOP_ROUNDS }
 }
 
 const TOOL_PRELUDE = `You are a research agent. Your retrieval tools are web_search and web_fetch, plus workspace tools (read, grep, glob, bash) for local files, cloned repos, and code. Route each source to its sanctioned API: arXiv papers via the export.arxiv.org API and arxiv.org/abs pages; paper metadata, citations, and references via the OpenAlex API (api.openalex.org); biomedical papers via Europe PMC; datasets, models, and repo files via the Hugging Face Hub API (huggingface.co/api, read-only). Delegate by role when it helps: researcher (deepresearch, lit, review, audit, replicate, recipe, compare, draft) gathers, reviewer (review, audit, compare) runs the adversarial pass, writer (deepresearch, lit, draft, compare) produces the final document, verifier (deepresearch, audit, replicate, recipe) fact-checks. For broad multi-angle work, fan out with the subagent tool (one description + prompt per angle) and synthesize the returns; keep narrow explainers lead-owned to avoid needless orchestration.`
