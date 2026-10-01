@@ -7,9 +7,6 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const src = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
 
-/** Installed version from package.json: the card header must show it. */
-const pkgVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
-
 /**
  * Stateful React stub: createElement tree + hooks that survive re-render.
  * Every hook takes one slot, as in React, so `hookCount()` after a render is
@@ -164,7 +161,7 @@ test('card registers under the research-keys namespace', () => {
   assert.equal(locale.ns, 'research-keys')
   assert.equal(locale.localeOrDicts, 'en', 'registered through the single-locale form')
   assert.equal(typeof locale.dict, 'object')
-  assert.ok(locale.dict.card && locale.dict.hint, 'English copy present')
+  assert.ok(locale.dict.summary && locale.dict.hint, 'English copy present')
 })
 
 test('client entry exports no values beyond cordis loading', () => {

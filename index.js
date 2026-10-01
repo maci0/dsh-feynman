@@ -43,11 +43,7 @@ export const Config = Schema.object({
 
 const REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-/**
- * Per-instance plugin state. Module-level state outlives plugin unload and is
- * shared by every instance, so a patch reload would re-run apply on top of the
- * previous instance's loops.
- */
+/** Unwrap a volatile config ref (anything with `get()`) to its current value. */
 function plainConfig(value) {
   if (value !== null && typeof value === 'object' && typeof value.get === 'function') return plainConfig(value.get())
   return value
@@ -64,6 +60,11 @@ function detachConfig(value) {
   return value
 }
 
+/**
+ * Per-instance plugin state. Module-level state outlives plugin unload and is
+ * shared by every instance, so a patch reload would re-run apply on top of the
+ * previous instance's loops.
+ */
 function createState(rawConfig) {
   const checked = resolveConfig(rawConfig)
   const read = (field) => {
@@ -84,7 +85,7 @@ function createState(rawConfig) {
   }
   return {
     refs,
-    // Live row. v0.1.7 updates volatile fields in place.
+    // Live row: volatile fields update in place.
     source: () => ({
       hfTokenEnv: read('hfTokenEnv'),
       alphaxivTokenEnv: read('alphaxivTokenEnv'),
