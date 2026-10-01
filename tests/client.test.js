@@ -34,6 +34,11 @@ function createReactStub() {
         hooks[slot] = typeof next === 'function' ? next(hooks[slot]) : next
       }]
     },
+    useRef: (initial) => {
+      const slot = take()
+      if (hooks.length <= slot) hooks[slot] = { current: initial }
+      return hooks[slot]
+    },
     useEffect: (fn, deps) => {
       const slot = take()
       const previous = hooks[slot]
@@ -340,11 +345,15 @@ test('a renamed reference is re-read without an invalidation and shows unknown m
   })
   const Card = registered[0].component
   React.reset()
-  Card({ view: 'page' })
+  const before = Card({ view: 'page' }).children[0].children.filter(node => typeof node.type === 'function')
   await new Promise((resolve) => setTimeout(resolve, 10))
   snapshot.value.hfTokenEnv = 'HF_RENAMED'
   React.reset()
-  const pending = textOf(Card({ view: 'page' }))
+  const after = Card({ view: 'page' })
+  const rows = after.children[0].children.filter(node => typeof node.type === 'function')
+  assert.notEqual(rows[0].props.key, before[0].props.key, 'a renamed credential input must remount with empty state')
+  assert.equal(rows[1].props.key, before[1].props.key, 'the other staged credential keeps its identity')
+  const pending = textOf(after)
   assert.ok(described.includes('HF_RENAMED'), 'the rename never asked about the reference the card shows')
   assert.ok(pending.includes('HF_RENAMED: …'), `an unanswered reference must read unknown: ${pending}`)
   release()
@@ -353,7 +362,39 @@ test('a renamed reference is re-read without an invalidation and shows unknown m
   assert.ok(textOf(Card({ view: 'page' })).includes('HF_RENAMED: set'))
 })
 
-// A lookup that fails says nothing about the key: reading it as "not set"
+test('an older credential read cannot replace a newer reading', async () => {
+  for (const rename of [false, true]) {
+    const snapshot = { ...readySnapshot, value: { ...readySnapshot.value } }
+    let release
+    let held = false
+    const { registered, React, credentialHandlers } = loadBundle({ snapshot, credentials: {
+      describe: async ([ref]) => {
+        if (ref === 'HF_TOKEN' && !held) {
+          held = true
+          await new Promise(resolve => { release = resolve })
+          return { ok: true, value: { [ref]: { configured: false, writable: true } } }
+        }
+        return { ok: true, value: { [ref]: { configured: true, writable: true } } }
+      },
+    } })
+    const Card = registered[0].component
+    React.reset()
+    Card({ view: 'page' })
+    assert.ok(release)
+    if (rename) snapshot.value.hfTokenEnv = 'HF_NEW'
+    React.reset()
+    Card({ view: 'page' })
+    if (!rename) credentialHandlers.forEach(handler => handler('HF_TOKEN'))
+    await new Promise(resolve => setImmediate(resolve))
+    React.reset()
+    assert.ok(textOf(Card({ view: 'page' })).includes(`${snapshot.value.hfTokenEnv}: set`))
+    release()
+    await new Promise(resolve => setImmediate(resolve))
+    React.reset()
+    assert.ok(textOf(Card({ view: 'page' })).includes(`${snapshot.value.hfTokenEnv}: set`), 'an old answer replaced the current key state')
+  }
+})
+
 // would fake an empty state the user then acts on.
 test('a failed credentials lookup reads unknown, never not set', async () => {
   const cases = [
