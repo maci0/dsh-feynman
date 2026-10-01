@@ -274,6 +274,20 @@ test('/feynman jobs lists the jobs this session owns', async () => {
   assert.ok(!result.text.includes('shell-2'), 'another session\'s job leaked')
 })
 
+// An absent jobs seam is unknown job state, not an empty job list.
+test('/feynman jobs without a jobs seam says so instead of reporting no jobs', async () => {
+  let handler
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: () => undefined,
+  }, {})
+  const result = await handler({ rawInput: 'jobs', agent: { id: 's', session: { id: 's' } }, attachments: [] })
+  assert.ok(!result.text.includes('No background jobs'), `an unmounted seam read as an empty list: ${result.text}`)
+  assert.match(result.text, /not mounted/)
+})
+
 // The round count is capped at 10, not absorbed into the artifact name.
 test('review-loop clamps an out-of-range round count to the cap', async () => {
   let handler
