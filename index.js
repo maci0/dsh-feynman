@@ -7,8 +7,7 @@
  * commands (log, jobs, help, feynman-model, init, outputs, btw, thinking,
  * search, web-results, keys).
  *
- * Load via a row in ~/.dsh/profiles/<profile>/cordis.patch.yml, or
- * `--patch cordis.local.yml`.
+ * For local development, `dsh plugin --profile <name> add <path-to-checkout>`.
  */
 import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
