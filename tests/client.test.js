@@ -1,11 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const src = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
+/**
+ * The browser half registers itself on `window.__ModuleLoader__`, the way the
+ * client module system loads it. Importing the real module once captures that
+ * registration; each case then runs the factory against its own React stub.
+ */
+let definition
+globalThis.window = { __ModuleLoader__: { load: (def) => { definition = def } } }
+await import('../lib/client.js')
+delete globalThis.window
 
 /**
  * Stateful React stub: createElement tree + hooks that survive re-render.
@@ -98,14 +101,7 @@ function loadBundle({ snapshot, credentials, servedNamespace }) {
       binding: () => ({ session: { command: (line) => { submitted.push(line); return Promise.resolve({ ok: true, value: { matched: true } }) } } }),
     },
   }
-  const factorySrc = src
-  let bundle
-  const fakeWindow = {
-    __ModuleLoader__: { load: ({ factory }) => { bundle = factory(() => React) } },
-  }
-  new Function('window', 'module', 'exports', 'require', factorySrc)(
-    fakeWindow, {}, {}, () => { throw new Error('no require') },
-  )
+  const bundle = definition.factory(() => React)
   bundle.apply(ctx)
   return { bundle, registered, decorated, submitted, React, localeRegistrations, requestedNamespaces, credentialHandlers }
 }
