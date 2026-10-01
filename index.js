@@ -259,14 +259,18 @@ function workflowHandler(kind, invocation, state) {
     ? reviewLoopPrompt(invocation, args, state)
     : buildPrompt(kind, args, liveRefs(state))
   if (body === null) return err(usage)
-  invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
+  const message = userMessage(invocation, `${kind}: ${args}\n\n${body}`)
+  invocation.agent.followup(message)
+  // The round's turn is the one that appends this exact message.
+  if (kind === 'review-loop') state.loops.get(invocation.agent.session.id).pending = message.id
   return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
 }
 
 function reviewLoopPrompt(invocation, args, state) {
   const { target, rounds } = parseLoopArgs(args)
   if (!target) return null
-  state.loops.set(invocation.agent.session.id, { target, rounds, round: 1 })
+  // `pending`: id of the queued round message; `open`: its turn has started.
+  state.loops.set(invocation.agent.session.id, { target, rounds, round: 1, pending: undefined, open: false })
   const brief = buildPrompt('review-loop', target, liveRefs(state))
   return `${brief}\n\nRound 1 of ${rounds}; follow-ups will drive re-review.`
 }
@@ -453,20 +457,35 @@ export function apply(ctx, config = {}) {
       recordInput: false,
       handler: (inv) => researchHandler(inv, ctx, sessionHandlers, state),
     }))
-    // /review-loop driver: after each completed turn, queue the next round.
-    // Keyed by session id: the registry keys agents by session id, so the
-    // lookup below resolves the same agent that stored the loop at dispatch.
+    // /review-loop driver. A round is the turn that appends the loop's own
+    // queued message as `user/message` (the agent loop records a claimed
+    // follow-up that way in the turn it opens), so a turn already running at
+    // dispatch, or a human turn in between, never counts. When that turn
+    // completes the next round is queued; any other end (error, abort,
+    // blocked, max-tokens) spends the round's message and ends the loop.
+    // Keyed by session id: the registry keys agents by session id.
     const offTurn = ctx.on('session/event', (session, event) => {
-      if (event?.type !== 'turn/end' || event?.data?.reason?.kind !== 'completed') return
+      const loop = state.loops.get(session.id)
+      if (loop === undefined) return
+      if (event?.type === 'user/message') {
+        if (event.data?.id === loop.pending) loop.open = true
+        return
+      }
+      if (event?.type !== 'turn/end' || !loop.open) return
+      loop.open = false
       // `agents` is injected, so the service is present; ctx.get is for the
       // optional seams only. The identity guard matches upstream
       // (api/session-controller): the emitted session IS agent.session.
       const agent = ctx.agents.get(session.id)
-      if (!agent || agent.session !== session) return
-      const loop = state.loops.get(session.id)
-      if (!loop || loop.round >= loop.rounds) { state.loops.delete(session.id); return }
+      if (event.data?.reason?.kind !== 'completed' || loop.round >= loop.rounds
+        || !agent || agent.session !== session) {
+        state.loops.delete(session.id)
+        return
+      }
       loop.round += 1
-      agent.followup(userMessage({ attachments: [], agent }, loopFollowupPrompt(loop.target, loop.round, loop.rounds - loop.round)))
+      const message = userMessage({ attachments: [], agent }, loopFollowupPrompt(loop.target, loop.round, loop.rounds - loop.round))
+      loop.pending = message.id
+      agent.followup(message)
     })
     return () => { offTurn?.(); for (const d of disposers) d() }
   })

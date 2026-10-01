@@ -6,7 +6,7 @@ A question lands mid-session: *what are the current approaches to mechanistic in
 
 - **14 research workflows** behind one `/feynman` dispatcher: deep research, literature review, severity-graded critique, a bounded review loop, paper-vs-code audit, replication plans, ML recipes, source comparison, drafting, autonomy loops, topic watching, PaperRank, full-text access, pandoc preview.
 - **13 session commands** for the housekeeping around that work: logs, jobs, artifact listing, key status, session search, doctor.
-- **A real review loop.** `/feynman review-loop` keeps iterating review → fix → re-review on its own, after every completed turn, until rounds run out. `/feynman review-loop stop` ends it early.
+- **A real review loop.** `/feynman review-loop` keeps iterating review → fix → re-review on its own: when a round's turn completes, the next round is queued, until rounds run out. `/feynman review-loop stop` ends it early.
 - **A subcommand picker.** Bare `/feynman` opens a popup listing every subcommand with its arguments; picking a row submits `/feynman <sub>`.
 - **A Research Keys card** on the **Plugins** page: open the `dsh-feynman` bundle, then the `feynman` row's **Configure** control. Hugging Face and AlphaXiv keys are stored through the credentials domain, never in settings.
 - **Key-aware briefs.** Every workflow brief names the live credential refs and treats an unset one as blocked instead of guessing.
@@ -85,6 +85,8 @@ Keys, in precedence order (environment shadows the store):
 
 Each subcommand queues a frozen user message as the agent's next turn. The message is built with `createUserMessage` and branded with a plugin source, so the harness does not mistake it for human typing. The queued turn is the work.
 
+A review-loop round is the turn that carries the loop's own queued message (the harness records it as that turn's `user/message`). Only that turn's completion queues the next round, so a turn already running when the loop starts, or a turn you send in between, does not count. A round turn that ends any other way (error, abort, blocked, token limit) ends the loop; start it again to continue.
+
 Retrieval maps to `web_search` / `web_fetch` plus the workspace tools (`read`, `grep`, `glob`, `bash`); there are no separate paper or dataset tools. Broad work fans out through the `subagent` tool, narrow explainers stay lead-owned.
 
 Artifacts land under `outputs/`: `*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, and so on. `/feynman outputs` lists them; `/feynman log` writes the session log. Rank writes the full PaperRank set (`*-research-run.json`, `*-papers.jsonl`, `*-scores.jsonl`, `*-score-audit.md`, `*-citation-graph.json`, `*-graph-explorer.html`, `*-field-map.json`, `*-rank-sensitivity.json`, `*-rank.provenance.md`) plus critique, calibration, reproduction, and synthesis outputs when the matching flags are passed.
@@ -95,7 +97,6 @@ The package declares `dsh.bundle`, so `dsh plugin add` appends it to `dsh.profil
 
 - **The picker submits the bare subcommand.** A subcommand that needs an argument answers with its usage line; type the argument after it.
 - **Attachments ride only on subcommands that queue a model message**: the workflows, `log`, `init`, `outputs`, and `btw`. Any other subcommand refuses an invocation that carries attachments, so the composer keeps them.
-- **The review loop counts completed turns.** Each completed turn in the session advances the loop, so a turn already running when you start it counts as the first round's end. An errored or aborted turn does not advance it.
 - **Review-loop state is instance-local.** Loops live in the `apply` closure, keyed by session id. A profile restart forgets them.
 - **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package; the host half can stay up.
 - **Host source edits remount only with `id: hmr` enabled** and this checkout in `config.root`. Without it, a live patch reload re-runs `apply` from the module already in memory.

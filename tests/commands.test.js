@@ -309,39 +309,72 @@ test('review-loop clamps an out-of-range round count to the cap', async () => {
   }
 })
 
-test('review-loop driver advances every round through the agents registry', async () => {
-  const { apply } = await import('../index.js')
+// The loop advances only when the turn its own queued message opened ends:
+// the agent loop appends that exact message as `user/message` in the turn it
+// starts, so an unrelated turn (one already running at dispatch, or a human
+// turn in between) never counts as a round.
+function loopHarness() {
   const followups = []
   const session = { id: 'loop-session' }
   const agent = { id: 'loop-session', session, followup: (m) => followups.push(m), inject: () => {} }
+  const listeners = {}
   let handler
-  let turnListener
   const registry = new Map([['loop-session', agent]])
   apply({
     effect: (fn) => { fn(); return () => {} },
     commands: { register: (d) => { handler = d.handler; return () => {} } },
-    on: (event, fn) => { if (event === 'session/event') turnListener = fn; return () => {} },
+    on: (event, fn) => { listeners[event] = fn; return () => {} },
     // `agents` is injected, so the plugin reads it directly.
     agents: { get: (id) => registry.get(id) },
     get: () => undefined,
   }, {})
-  const run = (rawInput) => handler({ rawInput, agent, attachments: [] })
-  const started = await run('review-loop paper.pdf 3')
-  assert.equal(started.kind, 'success')
-  assert.equal(followups.length, 1, 'round 1 queued at dispatch')
-  const endTurn = (reason = { kind: 'completed' }) => turnListener(session, { type: 'turn/end', data: { reason } })
-  endTurn()
-  assert.equal(followups.length, 2, 'round 2 queued after turn 1')
-  assert.ok(followups[1].content[0].text.includes('round 2'), 'round 2 brief')
-  endTurn({ kind: 'error', error: { message: 'x', code: 'UNKNOWN' } })
-  assert.equal(followups.length, 2, 'non-completed turn does not advance')
-  endTurn()
-  assert.equal(followups.length, 3, 'round 3 queued after turn 2')
-  endTurn()
-  assert.equal(followups.length, 3, 'loop ends after the final round')
-  const stopped = await run('review-loop stop')
-  assert.ok(stopped.text.includes('No review loop'), 'finished loop reports absent')
+  const emit = (type, data) => listeners['session/event'](session, { type, data })
+  return {
+    followups,
+    session,
+    listeners,
+    run: (rawInput) => handler({ rawInput, agent, attachments: [] }),
+    /** One turn: optionally carrying `message`, ending with `reason`. */
+    turn: (message, reason = { kind: 'completed' }) => {
+      emit('turn/start', { turn: 1 })
+      if (message !== undefined) emit('user/message', message)
+      emit('turn/end', { turn: 1, reason })
+    },
+  }
+}
+
+test('review-loop advances only on the turn its own queued message opened', async () => {
+  const loop = loopHarness()
+  assert.equal((await loop.run('review-loop paper.pdf 3')).kind, 'success')
+  assert.equal(loop.followups.length, 1, 'round 1 queued at dispatch')
+  loop.turn()
+  assert.equal(loop.followups.length, 1, 'a turn already running at dispatch is not round 1')
+  loop.turn({ id: 'human-message', role: 'user', content: [] })
+  assert.equal(loop.followups.length, 1, 'an unrelated turn is not a round')
+  loop.turn(loop.followups[0])
+  assert.equal(loop.followups.length, 2, 'round 2 queued after the round 1 turn')
+  assert.ok(loop.followups[1].content[0].text.includes('round 2'), 'round 2 brief')
+  loop.turn(loop.followups[1])
+  assert.equal(loop.followups.length, 3, 'round 3 queued after the round 2 turn')
+  loop.turn(loop.followups[2])
+  assert.equal(loop.followups.length, 3, 'loop ends after the final round')
+  assert.ok((await loop.run('review-loop stop')).text.includes('No review loop'))
 })
+
+// A round turn that errors, is aborted, or ends any way but `completed` ends
+// the loop: its queued message is spent, so waiting for another completion
+// would let an unrelated turn count as the round.
+test('a review-loop round that does not complete ends the loop', async () => {
+  for (const reason of [{ kind: 'error', error: { message: 'x', code: 'UNKNOWN' } }, { kind: 'aborted', reason: { kind: 'user' } }]) {
+    const loop = loopHarness()
+    await loop.run('review-loop paper.pdf 3')
+    loop.turn(loop.followups[0], reason)
+    loop.turn(loop.followups[0])
+    assert.equal(loop.followups.length, 1, `${reason.kind}: the loop queued another round`)
+    assert.ok((await loop.run('review-loop stop')).text.includes('No review loop'), `${reason.kind}: loop state survived`)
+  }
+})
+
 
 // Plugin state is per apply instance: a second load must not see the first
 // instance's loops (module-level state would leak across a patch reload).
@@ -494,6 +527,7 @@ test('real Cordis composition mounts the plugin and tears it down', async () => 
   assert.equal(started.kind, 'success')
   assert.equal(followups.length, 1, 'round 1 queued through the real handler')
   // The review-loop driver is live on the real event bus.
+  ctx.emit('session/event', session, { type: 'user/message', data: followups[0] })
   ctx.emit('session/event', session, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
   assert.equal(followups.length, 2, 'turn/end advanced the loop through the real bus')
 
