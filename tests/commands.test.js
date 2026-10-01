@@ -441,7 +441,7 @@ test('the card state answers the real surface end to end through /keys', async (
   assert.ok(!status.text.includes('Config card'), '/status gained a card line')
 })
 
-// docs/testing.md:37-41 — a real in-process Cordis composition, not a
+// docs/testing.md:37-41: a real in-process Cordis composition, not a
 // hand-built ctx: mount the shipped entry, assert its registrations, dispose
 // the fiber, and assert the teardown.
 test('real Cordis composition mounts the plugin and tears it down', async () => {
@@ -511,8 +511,8 @@ test('every workflow brief is byte-identical to the reviewed text', () => {
   digest.update(loopFollowupPrompt('paper X', 2, 2))
   assert.equal(
     digest.digest('hex'),
-    '4f004963fb8f1065d6e4dab4636f9cb19f988e16d6b6ee54223fa4c341864d86',
-    'prompt text changed — update the digest deliberately',
+    'cc03475f8518326051ccb309049c4419777d2a6cde7b938d8a51b747f7da486c',
+    'prompt text changed: update the digest deliberately',
   )
 })
 

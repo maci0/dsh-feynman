@@ -1,11 +1,11 @@
 /**
  * Research workflow commands for DeepSeek Harness.
  *
- * 14 workflow slash commands (deepresearch, lit, review, review-loop, audit,
- * replicate, recipe, compare, draft, autoresearch, watch, rank, paper,
- * preview) that steer the model with workflow briefs, plus session/utility
- * commands (log, jobs, help, feynman-model, init, outputs, btw, thinking,
- * search, web-results, keys).
+ * One `/feynman` command: 14 workflow subcommands (deepresearch, lit, review,
+ * review-loop, audit, replicate, recipe, compare, draft, autoresearch, watch,
+ * rank, paper, preview) that steer the model with workflow briefs, plus session
+ * subcommands (log, jobs, help, feynman-model, init, outputs, btw, thinking,
+ * search, web-results, keys, doctor, status).
  *
  * For local development, `dsh plugin --profile <name> add <path-to-checkout>`.
  */
@@ -37,7 +37,7 @@ export const Config = Schema.object({
 // --- key configuration (Hugging Face + AlphaXiv) ---
 //
 // Secrets live in the credentials seam ($DSH_HOME/.credentials.yaml, env, .env
-// fallbacks) — never in row config. Row config names only the env refs, so one
+// fallbacks), never in row config. Row config names only the env refs, so one
 // deployment can point at different vault names without touching code.
 // Zero-click path: `export HF_TOKEN=… ALPHAXIV_API_KEY=…`; managed path: /keys.
 
@@ -125,7 +125,7 @@ function liveRefs(state) {
 function cardState(ctx) {
   try {
     const settings = service(ctx, 'settings')
-    if (!settings) return 'settings service absent — card unavailable on minimal profiles'
+    if (!settings) return 'settings service absent: card unavailable on minimal profiles'
     // The service the harness mounts (`SettingsForms`) has no `get`: it lists
     // one descriptor per configurable row through `describe()`. Probing for a
     // `get` method threw a TypeError, which read as an unserved namespace even
@@ -134,7 +134,7 @@ function cardState(ctx) {
     const served = Array.isArray(descriptors)
       && descriptors.some((descriptor) => descriptor?.ns === RESEARCH_KEYS_NAMESPACE)
     return served
-      ? 'namespace served — the card is on the Plugins page, on the feynman row\'s Configure control'
+      ? 'namespace served: the card is on the Plugins page, on the feynman row\'s Configure control'
       : 'namespace NOT served'
   } catch (error) {
     return `namespace NOT served (${error instanceof Error ? error.message : String(error)})`
@@ -173,7 +173,7 @@ async function keysHandler(invocation, ctx, state) {
         ...await keySummary(ctx, refs),
         `Config card: ${cardState(ctx)}`,
         '',
-        `Usage: /feynman keys set <hf|alphaxiv> <value> — stores in the managed credentials file.`,
+        `Usage: /feynman keys set <hf|alphaxiv> <value> stores the key in the managed credentials file.`,
         `Or export ${refs.hfTokenEnv} / ${refs.alphaxivTokenEnv} before launch; env shadows the store.`,
       ].join('\n'),
     }
@@ -216,7 +216,7 @@ function researchHandler(invocation, ctx, sessionHandlers, state) {
   if (WORKFLOWS[name]) return workflowHandler(name, subInvocation, state)
   const session = sessionHandlers[name]
   if (session) return session(subInvocation, ctx)
-  return err(`Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}> — unknown subcommand "${sub}".`)
+  return err(`Unknown subcommand "${sub}". Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}>.`)
 }
 
 /** Session subcommands whose handler sends the invocation's attachments to the model. */
@@ -312,7 +312,7 @@ async function doctorHandler(invocation, ctx, state) {
   const present = (key) => service(ctx, key) !== undefined && service(ctx, key) !== null
   for (const [label, key] of [['credentials store', 'credentials'], ['settings (config card)', 'settings'],
     ['jobs', 'jobs'], ['session search', 'sessionQuery'], ['scheduler', 'schedule']]) {
-    lines.push(`- ${label}: ${present(key) ? 'mounted' : 'absent — related commands degrade to an error or guidance text'}`)
+    lines.push(`- ${label}: ${present(key) ? 'mounted' : 'absent (related commands degrade to an error or guidance text)'}`)
   }
   try {
     const { execFileSync } = await import('node:child_process')
@@ -343,9 +343,9 @@ async function statusHandler(invocation, ctx, state) {
 
 function helpHandler() {
   const lines = ['Research workflows (`/feynman <subcommand>`):']
-  for (const n of Object.keys(WORKFLOWS)) lines.push(`  ${n} ${WORKFLOWS[n].hint} — ${WORKFLOWS[n].description}`)
+  for (const n of Object.keys(WORKFLOWS)) lines.push(`  ${n} ${WORKFLOWS[n].hint}: ${WORKFLOWS[n].description}`)
   lines.push('Session (`/feynman <subcommand>`):')
-  for (const n of Object.keys(SESSION_COMMANDS)) lines.push(`  ${n} — ${SESSION_COMMANDS[n]}`)
+  for (const n of Object.keys(SESSION_COMMANDS)) lines.push(`  ${n}: ${SESSION_COMMANDS[n]}`)
   lines.push('', 'Tip: /feynman review-loop <artifact> [rounds] iterates review→fix→re-review; /feynman review-loop stop ends it.')
   return { kind: 'success', text: lines.join('\n') }
 }
