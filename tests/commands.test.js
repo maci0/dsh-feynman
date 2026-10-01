@@ -636,3 +636,17 @@ test('prompt construction stays inside its CPU-time budget', () => {
     `prompt build cost ${ratio.toFixed(2)}x the reference assembly; limit 3.2x`,
   )
 })
+
+
+test('workflow and side-question relays preserve multiline input and code indentation', async () => {
+  let handler
+  const messages = []
+  const agent = { session: { id: 'fixture' }, followup: (message) => messages.push(message), inject: (message) => messages.push(message) }
+  apply({ effect: (fn) => fn(), commands: { register: (definition) => { handler = definition.handler; return () => {} } }, on: () => () => {}, get: () => undefined }, {})
+  const prompt = 'Check this code:\n```js\nif (ready) {\n  launch()\n}\n```'
+  for (const verb of ['audit', 'btw']) {
+    const result = await handler({ rawInput: `${verb} ${prompt}`, agent, attachments: [] })
+    assert.equal(result.kind, 'success')
+    assert.ok(messages.at(-1).content[0].text.includes(prompt), `${verb} must retain the literal prompt`)
+  }
+})
