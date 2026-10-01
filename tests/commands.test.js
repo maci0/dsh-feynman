@@ -1,8 +1,8 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from './prompts.js'
-import { apply } from './index.js'
+import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from '../prompts.js'
+import { apply } from '../index.js'
 
 // Every Feynman workflow slash command is mapped.
 test('all Feynman workflow commands mapped', () => {
@@ -207,7 +207,7 @@ test('one /feynman dispatcher covers every subcommand', async () => {
 })
 
 test('review-loop driver advances every round through the agents registry', async () => {
-  const { apply } = await import('./index.js')
+  const { apply } = await import('../index.js')
   const followups = []
   const session = { id: 'loop-session' }
   const agent = { id: 'loop-session', session, followup: (m) => followups.push(m), inject: () => {} }
@@ -369,7 +369,7 @@ test('the card state answers the real surface end to end through /keys', async (
 // the fiber, and assert the teardown.
 test('real Cordis composition mounts the plugin and tears it down', async () => {
   const { Context } = await import('@deepseek-ai/cordis')
-  const { name, inject, apply } = await import('./index.js')
+  const { name, inject, apply } = await import('../index.js')
   const registered = []
   const session = { id: 'real-session' }
   const followups = []
