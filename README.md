@@ -97,7 +97,7 @@ The package declares `dsh.bundle`, so `dsh plugin add` appends it to `dsh.profil
 
 - **The picker submits the bare subcommand.** A subcommand that needs an argument answers with its usage line; type the argument after it.
 - **Attachments ride only on subcommands that queue a model message**: the workflows, `log`, `init`, `outputs`, and `btw`. Any other subcommand refuses an invocation that carries attachments, so the composer keeps them.
-- **Review-loop state is instance-local.** Loops live in the `apply` closure, keyed by session id. A profile restart forgets them.
+- **Review-loop state is instance-local.** Loops live in the `apply` closure, keyed by session id, and a disposed session drops its loop. A profile restart forgets them.
 - **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package; the host half can stay up.
 - **Host source edits remount only with `id: hmr` enabled** and this checkout in `config.root`. Without it, a live patch reload re-runs `apply` from the module already in memory.
 - **Ranking is a live heuristic.** Scores are computed transparently in-session and the output says so. They are not a fitted model and not a deterministic scorer.

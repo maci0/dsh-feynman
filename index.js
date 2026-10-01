@@ -487,6 +487,8 @@ export function apply(ctx, config = {}) {
       loop.pending = message.id
       agent.followup(message)
     })
-    return () => { offTurn?.(); for (const d of disposers) d() }
+    // A session that goes away mid-loop takes its loop state with it.
+    const offDisposed = ctx.on('session/disposed', (session) => { state.loops.delete(session.id) })
+    return () => { offTurn?.(); offDisposed?.(); for (const d of disposers) d() }
   })
 }
