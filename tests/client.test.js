@@ -221,7 +221,7 @@ test('open card shows configured badges without leaking literals', async () => {
     inputs.map((input) => input.props['aria-label']),
     // The card already names the credential ref in the visible label; the field
     // carries that same name so the two cannot drift apart.
-    ['Hugging Face API key (HF_TOKEN) — new value', 'AlphaXiv API key (ALPHAXIV_API_KEY) — new value'],
+    ['New value for Hugging Face API key (HF_TOKEN)', 'New value for AlphaXiv API key (ALPHAXIV_API_KEY)'],
   )
 })
 
@@ -415,7 +415,7 @@ test('picker build and card render stay inside their CPU-time budget', async () 
     return 0
   }
 
-  // Render reference: one key row's shape through the same stub — the same
+  // Render reference: one key row's shape through the same stub: the same
   // hooks and a fixed element tree, at a fixed size.
   function ReferenceRow() {
     React.useState('')
@@ -483,7 +483,7 @@ test('picker build and card render stay inside their CPU-time budget', async () 
     `picker build cost ${optionsRatio.toFixed(2)}x the reference build; limit 1.2x`,
   )
   // Recorded range for this ratio on a loaded host: 9.7-10.5x. 16x still fails
-  // a real regression — a doubled render measures 18.7-19.5x — while leaving
+  // a real regression (a doubled render measures 18.7-19.5x) while leaving
   // half again as much room for the process-to-process spread.
   assert.ok(
     renderRatio <= 16,
