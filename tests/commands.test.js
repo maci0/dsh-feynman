@@ -238,6 +238,27 @@ test('subcommands that queue no message refuse attachments instead of dropping t
   }
 })
 
+// The round count is capped at 10, not absorbed into the artifact name.
+test('review-loop clamps an out-of-range round count to the cap', async () => {
+  let handler
+  const followups = []
+  const agent = { session: { id: 'clamp' }, followup: (m) => followups.push(m), inject: () => {} }
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: () => undefined,
+  }, {})
+  const run = (rawInput) => handler({ rawInput, agent, attachments: [] })
+  for (const [line, rounds] of [['review-loop paper.pdf 20', 10], ['review-loop paper.pdf 0', 1]]) {
+    assert.equal((await run(line)).kind, 'success')
+    const text = followups.at(-1).content[0].text
+    assert.ok(text.includes('review of "paper.pdf"'), `${line}: the round count leaked into the artifact name`)
+    assert.ok(text.includes(`Round 1 of ${rounds};`), `${line}: expected ${rounds} rounds`)
+    assert.match((await run('review-loop stop')).text, /for "paper\.pdf" stopped/)
+  }
+})
+
 test('review-loop driver advances every round through the agents registry', async () => {
   const { apply } = await import('../index.js')
   const followups = []
