@@ -133,6 +133,18 @@ test('row config is the base for credential refs', async () => {
   assert.match(result.text, /Hugging Face key \(CUSTOM_HF\)/)
   assert.match(result.text, /AlphaXiv key \(ALPHAXIV_API_KEY\)/)
 })
+test('a credential ref that is not an env-var name fails at load', () => {
+  const ctx = {
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: () => () => {} },
+    on: () => () => {},
+    get: () => undefined,
+  }
+  assert.throws(() => apply(ctx, { hfTokenEnv: 'HF TOKEN' }), /\[feynman\] hfTokenEnv must be an env-var name/)
+  assert.throws(() => apply(ctx, { alphaxivTokenEnv: '' }), /\[feynman\] alphaxivTokenEnv must be an env-var name/)
+  assert.throws(() => apply(ctx, { hfTokenEnv: 42 }), /\[feynman\]/)
+})
+
 test('one /feynman dispatcher covers every subcommand', async () => {
   const registered = []
   const followups = []
