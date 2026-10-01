@@ -112,11 +112,11 @@ test('volatile row refs unwrap before schema validation and stay live', async ()
     get: () => undefined,
     inject: () => {},
   }, { hfTokenEnv: { get: () => hf }, alphaxivTokenEnv: { get: () => 'LIVE_AX' } })
-  const first = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const first = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.match(first.text, /Hugging Face key \(LIVE_HF\)/)
   assert.match(first.text, /AlphaXiv key \(LIVE_AX\)/)
   hf = 'NEXT_HF'
-  const second = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const second = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.match(second.text, /Hugging Face key \(NEXT_HF\)/)
 })
 test('row config is the base for credential refs', async () => {
@@ -128,7 +128,7 @@ test('row config is the base for credential refs', async () => {
     get: () => undefined,
     inject: () => {},
   }, { hfTokenEnv: 'CUSTOM_HF' })
-  const result = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const result = await handler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.equal(result.kind, 'success')
   assert.match(result.text, /Hugging Face key \(CUSTOM_HF\)/)
   assert.match(result.text, /AlphaXiv key \(ALPHAXIV_API_KEY\)/)
@@ -204,6 +204,38 @@ test('one /feynman dispatcher covers every subcommand', async () => {
   assert.equal(status.kind, 'success')
   assert.ok(status.text.includes('setup summary'), 'status summarizes setup')
   assert.equal(followups.length, before, 'diagnostics queue no model turn')
+})
+
+// The registry hands admitted attachments to the handler, and a handler that
+// cannot use them must return an error so the composer keeps the originals.
+// A success here would drop the user's image or file without a trace.
+test('subcommands that queue no message refuse attachments instead of dropping them', async () => {
+  let handler
+  const followups = []
+  const injected = []
+  const agent = { session: { id: 's' }, followup: (m) => followups.push(m), inject: (m) => injected.push(m) }
+  apply({
+    effect: (fn) => { fn(); return () => {} },
+    commands: { register: (d) => { handler = d.handler; return () => {} } },
+    on: () => () => {},
+    get: () => undefined,
+  }, {})
+  const image = Object.freeze({ type: 'image', attachment: { hash: 'h', mediaType: 'image/png' } })
+  const run = (rawInput) => handler({ rawInput, agent, attachments: [image] })
+  for (const line of ['', 'help', 'doctor', 'status', 'keys', 'jobs', 'feynman-model', 'web-results',
+    'search scaling', 'thinking', 'thinking high', 'review-loop stop']) {
+    const result = await run(line)
+    assert.equal(result.kind, 'error', `/feynman ${line} dropped an attachment: ${result.text}`)
+    assert.match(result.text, /attachments/)
+  }
+  assert.equal(followups.length + injected.length, 0, 'a refused invocation queued a message')
+  // Every message-queuing subcommand carries the attachment into the model turn.
+  for (const line of ['deepresearch x', 'review-loop paper.pdf 2', 'rank x', 'paper 2401.1', 'preview', 'log', 'init', 'outputs', 'btw why']) {
+    const result = await run(line)
+    assert.equal(result.kind, 'success', `/feynman ${line}: ${result.text}`)
+    const sent = [...followups, ...injected].at(-1)
+    assert.equal(sent.content[0].type, 'image', `/feynman ${line} queued its message without the attachment`)
+  }
 })
 
 test('review-loop driver advances every round through the agents registry', async () => {
@@ -328,14 +360,14 @@ const cardLineOf = (text) => text.split('\n').find((line) => line.includes('Conf
 
 test('/feynman doctor reports the card namespace served against the real settings surface', async () => {
   cardServices.settings = describeSettings('feynman')
-  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.equal(result.kind, 'success')
   assert.match(cardLineOf(result.text), /namespace served/, `/feynman doctor misread the settings surface: ${cardLineOf(result.text)}`)
 })
 
 test('a settings service serving another namespace still reports NOT served', async () => {
   cardServices.settings = describeSettings('someone-else')
-  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.match(cardLineOf(result.text), /namespace NOT served/, 'an unserved namespace must not be reported as served')
 })
 
@@ -344,23 +376,23 @@ test('a settings service that cannot be queried reports NOT served, never a cras
     describe: () => { throw new Error('settings document is unavailable') },
     update: async () => {},
   }
-  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.equal(result.kind, 'success')
   assert.match(cardLineOf(result.text), /namespace NOT served \(settings document is unavailable\)/)
 })
 
 test('an absent settings service reports the card as unavailable, not unserved', async () => {
-  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } } })
+  const result = await cardHandler({ rawInput: 'doctor', agent: { session: { id: 's' } }, attachments: [] })
   assert.match(cardLineOf(result.text), /settings service absent/)
 })
 
 test('the card state answers the real surface end to end through /keys', async () => {
   cardServices.settings = describeSettings('feynman')
-  const keys = await cardHandler({ rawInput: 'keys', agent: { session: { id: 's' } } })
+  const keys = await cardHandler({ rawInput: 'keys', agent: { session: { id: 's' } }, attachments: [] })
   assert.match(keys.text, /namespace served/, '/keys misread the settings surface')
   // /status names key state and the model route; the card line belongs to
   // /keys and /doctor only, so it must not grow one by accident.
-  const status = await cardHandler({ rawInput: 'status', agent: { session: { id: 's' } } })
+  const status = await cardHandler({ rawInput: 'status', agent: { session: { id: 's' } }, attachments: [] })
   assert.ok(!status.text.includes('Config card'), '/status gained a card line')
 })
 

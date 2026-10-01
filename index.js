@@ -205,12 +205,26 @@ function err(text) { return { kind: 'error', text } }
 function researchHandler(invocation, ctx, sessionHandlers, state) {
   const [sub = '', ...rest] = invocation.rawInput.trim().split(/\s+/).filter(Boolean)
   const name = sub.toLowerCase()
+  // The registry admits attachments for the whole command; a subcommand that
+  // queues no message must refuse them so the composer keeps the originals.
+  if (invocation.attachments.length > 0 && !queuesMessage(name, rest)) {
+    return err(`/feynman ${name || '(bare)'} does not use attachments; attach them to a workflow, log, init, outputs, or btw.`)
+  }
   if (!name) return helpHandler({ ...invocation, rawInput: '' })
   const subInvocation = { ...invocation, rawInput: rest.join(' ') }
   if (WORKFLOWS[name]) return workflowHandler(name, subInvocation, state)
   const session = sessionHandlers[name]
   if (session) return session(subInvocation, ctx)
   return err(`Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}> — unknown subcommand "${sub}".`)
+}
+
+/** Session subcommands whose handler sends the invocation's attachments to the model. */
+const MESSAGE_SESSION_COMMANDS = new Set(['log', 'init', 'outputs', 'btw'])
+
+/** Whether `/feynman <name> <rest>` carries its attachments into a queued message. */
+function queuesMessage(name, rest) {
+  if (WORKFLOWS[name]) return !(name === 'review-loop' && rest.join(' ').toLowerCase() === 'stop')
+  return MESSAGE_SESSION_COMMANDS.has(name)
 }
 
 /** Flag-parsing workflows: the parsed object replaces the raw argument text. */
