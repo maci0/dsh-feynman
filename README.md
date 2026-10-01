@@ -108,8 +108,11 @@ The package declares `dsh.bundle`, so `dsh plugin add` appends it to `dsh.profil
 Plain JavaScript, no build step. `index.js` is the host half, `prompts.js` is the pure workflow catalog (no harness imports), `lib/client.js` is the browser half.
 
 ```sh
-npm test    # node --test tests/*.test.js (Node ^22.19 || >=24)
+bun install --frozen-lockfile
+bun test
 ```
+
+dsh loads plugins on Node `^22.19.0 || >=24.0.0`; development and tests run on bun.
 
 Coverage: prompt construction, dispatcher registration for every subcommand, attachment refusal, review-loop rounds through the agents registry, per-instance loop state, credential-ref validation failures, jobs and session search against fake seams, the card's registration, hook order, ready-gating, and non-leaking of key literals, and a real Cordis composition.
 
