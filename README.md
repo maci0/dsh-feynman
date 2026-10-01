@@ -20,7 +20,7 @@ A question lands mid-session: *what are the current approaches to mechanistic in
 > would win).
 
 ```sh
-dsh plugin --profile web add github:maci0/dsh-feynman#v0.18.0
+dsh plugin --profile web add github:maci0/dsh-feynman#v0.19.0
 ```
 
 Pin a release tag: a bare `github:` spec floats on `main`. To upgrade, run the same command with the newer tag, then restart `dsh web` (bundle layers compose at boot).
