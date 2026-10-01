@@ -10,25 +10,38 @@ const src = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
 /** Installed version from package.json: the card header must show it. */
 const pkgVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
 
-/** Stateful React stub: createElement tree + hooks that survive re-render. */
+/**
+ * Stateful React stub: createElement tree + hooks that survive re-render.
+ * Every hook takes one slot, as in React, so `hookCount()` after a render is
+ * the number React would compare against the previous render of that
+ * component. Effects run when their dependencies change, like React's.
+ */
 function createReactStub() {
   const hooks = []
   let cursor = 0
+  const take = () => { const slot = cursor; cursor += 1; return slot }
   return {
     reset: () => { cursor = 0 },
+    hookCount: () => cursor,
     createElement: (type, props, ...children) => ({
       type, props: props ?? {}, children: children.flat(),
     }),
-    useSyncExternalStore: (_sub, getSnapshot) => getSnapshot(),
+    useSyncExternalStore: (_sub, getSnapshot) => { take(); return getSnapshot() },
     useState: (initial) => {
-      const slot = cursor
-      cursor += 1
+      const slot = take()
       if (hooks.length <= slot) hooks[slot] = initial
       return [hooks[slot], (next) => {
         hooks[slot] = typeof next === 'function' ? next(hooks[slot]) : next
       }]
     },
-    useEffect: (fn) => { fn() },
+    useEffect: (fn, deps) => {
+      const slot = take()
+      const previous = hooks[slot]
+      if (previous !== undefined && deps !== undefined
+        && deps.length === previous.deps.length && deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return
+      previous?.cleanup?.()
+      hooks[slot] = { deps: deps ?? [], cleanup: fn() }
+    },
   }
 }
 
@@ -183,6 +196,8 @@ test('open card shows configured badges without leaking literals', async () => {
   const Card = registered[0].component
   React.reset()
   assert.equal(Card({ view: 'summary' }), 'Hugging Face and AlphaXiv keys, stored in the credentials file.')
+  // The summary and the page are separate slot instances, each with its own hooks.
+  React.reset()
   Card({ view: 'page' })
   await new Promise((resolve) => setTimeout(resolve, 10))
   React.reset()
@@ -292,6 +307,57 @@ test('a renamed credential reference drops the old answer and is re-read', async
     !textOf(Card({ view: 'page' })).includes('HF_TOKEN_NEW: set'),
     'the card reports set for a reference the credentials domain reports unset',
   )
+})
+
+// The settings form starts `loading` and turns `ready` under the same mounted
+// card. React throws "Rendered more hooks than during the previous render"
+// when a component calls a different number of hooks between renders.
+test('the card calls the same hooks while loading and once ready', () => {
+  const snapshot = { status: 'loading', value: undefined, user: {}, writable: false }
+  const { registered, React } = loadBundle({
+    snapshot,
+    credentials: { describe: async () => ({ ok: true, value: {} }) },
+  })
+  const Card = registered[0].component
+  React.reset()
+  assert.equal(Card({ view: 'page' }), null)
+  const loadingHooks = React.hookCount()
+  Object.assign(snapshot, readySnapshot)
+  React.reset()
+  assert.notEqual(Card({ view: 'page' }), null)
+  assert.equal(React.hookCount(), loadingHooks, 'the ready render called a different number of hooks')
+})
+
+// A rename in the settings form changes no credential, so no invalidation
+// arrives: the card itself must re-read the reference it now shows, and show
+// it as unknown until the answer lands.
+test('a renamed reference is re-read without an invalidation and shows unknown meanwhile', async () => {
+  const described = []
+  let release
+  const snapshot = { ...readySnapshot, value: { ...readySnapshot.value } }
+  const { registered, React } = loadBundle({
+    snapshot,
+    credentials: {
+      describe: async ([ref]) => {
+        described.push(ref)
+        if (ref === 'HF_RENAMED') await new Promise((resolve) => { release = resolve })
+        return { ok: true, value: { [ref]: { configured: true, writable: true } } }
+      },
+    },
+  })
+  const Card = registered[0].component
+  React.reset()
+  Card({ view: 'page' })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  snapshot.value.hfTokenEnv = 'HF_RENAMED'
+  React.reset()
+  const pending = textOf(Card({ view: 'page' }))
+  assert.ok(described.includes('HF_RENAMED'), 'the rename never asked about the reference the card shows')
+  assert.ok(pending.includes('HF_RENAMED: …'), `an unanswered reference must read unknown: ${pending}`)
+  release()
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  React.reset()
+  assert.ok(textOf(Card({ view: 'page' })).includes('HF_RENAMED: set'))
 })
 
 test('bare /feynman opens a subcommand picker matching the host catalog', async () => {
