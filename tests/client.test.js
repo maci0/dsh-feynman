@@ -152,7 +152,7 @@ test('card registers under the research-keys namespace', () => {
   })
   assert.deepEqual(bundle.inject, ['slots', 'configForms', 'locale', 'remote', 'remote.credentials', 'commandUi', 'sessions'])
   assert.equal(registered.length, 1)
-  assert.equal(registered[0].entry.key, 'dsh-feynman#feynman')
+  assert.equal(registered[0].entry.key, '@maci0/dsh-feynman#feynman')
   assert.equal(registered[0].entry.name, 'plugins.row.config')
   // English only, in the single-locale overload: the locale service resolves
   // every other language through its per-key fallback. A `{ en, zh }` map here

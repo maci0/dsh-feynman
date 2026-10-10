@@ -4,4 +4,4 @@
 # not dedupe ids, two rows would register the plugin twice.
 - insert:
     - id: feynman
-      name: 'dsh-feynman'
+      name: '@maci0/dsh-feynman'
