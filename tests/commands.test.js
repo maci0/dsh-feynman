@@ -518,14 +518,16 @@ test('every workflow brief is byte-identical to the reviewed text', () => {
 test('prompt construction stays inside its CPU-time budget', () => {
   const kinds = ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'summarize']
   let sink = 0
-  // One batch = every workflow once. The denominator is a fixed reference that
-  // builds the same shape of text (per-workflow concatenation, joined) without
-  // the builder, and both halves of a pair are timed in the same window. The
+  // One batch = every workflow once. The denominator builds comparable-sized
+  // text (per-workflow concatenation, joined) without the builder, and both
+  // halves of a pair are timed in the same window. The
   // old gate divided by nothing: an absolute 2.0us/build budget against a
   // 0.64us baseline relies on the host being quiet, and a loaded host tripped
   // it on contention alone (2.198us/build). String assembly is what both sides
   // spend, so contention lands on both and divides out.
-  const REFERENCE_LINES = 40
+  const referenceLines = Object.fromEntries(kinds.map((kind) => [kind,
+    Math.ceil(buildPrompt(kind, DIGEST_ARGS[kind], {}).length / `reference ${kind} line 00\n`.length),
+  ]))
   const measuredBatch = (iterations) => {
     for (let i = 0; i < iterations; i += 1) {
       sink += kinds.map((kind) => buildPrompt(kind, DIGEST_ARGS[kind], {})).join('\u0000').length
@@ -535,7 +537,7 @@ test('prompt construction stays inside its CPU-time budget', () => {
     for (let i = 0; i < iterations; i += 1) {
       sink += kinds.map((kind) => {
         let text = ''
-        for (let line = 0; line < REFERENCE_LINES; line += 1) text += `reference ${kind} line ${line}\n`
+        for (let line = 0; line < referenceLines[kind]; line += 1) text += `reference ${kind} line ${line}\n`
         return text
       }).join('\u0000').length
     }
@@ -560,9 +562,9 @@ test('prompt construction stays inside its CPU-time budget', () => {
   const ratio = pairedRatio(measuredBatch, referenceBatch, 400, 10)
   assert.ok(sink > 0)
   console.log(`feynman-prompt: ${ratio.toFixed(2)}x the reference assembly`)
-  // Full upstream protocols roughly double the rendered payload of the old
-  // briefs; the reference now allocates 40 lines rather than 20. The 3.2x
-  // regression budget remains unchanged (Node baseline about 2.1x).
+  // Normalize by rendered payload size so adding evidence instructions does
+  // not masquerade as slower assembly. The 3.2x regression budget is unchanged;
+  // the frozen digest above separately requires deliberate protocol changes.
   assert.ok(
     ratio <= 3.2,
     `prompt build cost ${ratio.toFixed(2)}x the reference assembly; limit 3.2x`,
