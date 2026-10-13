@@ -1,17 +1,22 @@
 /**
  * Research workflow commands for DeepSeek Harness.
  *
- * One `/feynman` command: 14 workflow subcommands (deepresearch, lit, review,
- * review-loop, audit, replicate, recipe, compare, draft, autoresearch, watch,
- * rank, paper, preview) that steer the model with workflow briefs, plus session
- * subcommands (log, jobs, help, feynman-model, init, outputs, btw, thinking,
- * search, web-results, keys, doctor, status).
+ * One `/feynman` command: 11 workflow subcommands (deepresearch, lit, review,
+ * review-loop, audit, replicate, recipe, compare, draft, autoresearch,
+ * summarize) that steer the model with workflow briefs, plus session
+ * subcommands for project state, research tools/roles, AlphaXiv, web results,
+ * and source selection.
  *
  * For local development, `dsh plugin --profile <name> add <path-to-checkout>`.
  */
-import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt } from './prompts.js'
+import { WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS, buildPrompt, parseLoopArgs, parseSummarizeArgs, loopFollowupPrompt } from './prompts.js'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm/message'
+import { mountResearchTools } from './lib/research-tools.js'
+import { createResearchSkillProvider, createRoleTool, ROLES } from './lib/resources.js'
+import { createSearchContentTool, createCodeSearchTool, storedWebResults } from './lib/web-results.js'
+import { alphaCommand } from './lib/alpha-command.js'
+import { createWorkflowTool } from './lib/workflow-tool.js'
 
 export const name = 'feynman'
 // The review-loop driver resolves agents from the registry on turn/end;
@@ -26,8 +31,8 @@ export const inject = ['commands', 'agents']
 const RESEARCH_KEYS_NAMESPACE = 'feynman'
 
 /**
- * The two env refs, also the settings-card schema. The loop/rank bounds are
- * destructured defaults in prompts.js, not config rows: nobody tunes them.
+ * The two env refs, also the settings-card schema. Review-loop bounds live
+ * in prompts.js rather than row config.
  */
 export const Config = Schema.object({
   hfTokenEnv: Schema.string().role('credential-ref').default('HF_TOKEN').volatile(),
@@ -91,6 +96,7 @@ function createState(rawConfig) {
       alphaxivTokenEnv: read('alphaxivTokenEnv'),
     }),
     loops: new Map(),
+    curator: new Set(),
   }
 }
 
@@ -159,6 +165,8 @@ async function keySummary(ctx, refs) {
   return [
     `Hugging Face key (${refs.hfTokenEnv}): ${hf}`,
     `AlphaXiv key (${refs.alphaxivTokenEnv}): ${ax}`,
+    `OpenAlex key (OPENALEX_API_KEY): ${await keyState(ctx, 'OPENALEX_API_KEY')}`,
+    `Semantic Scholar key (SEMANTIC_SCHOLAR_API_KEY): ${await keyState(ctx, 'SEMANTIC_SCHOLAR_API_KEY')}`,
   ]
 }
 
@@ -172,24 +180,26 @@ async function keysHandler(invocation, ctx, state) {
       text: [
         ...await keySummary(ctx, refs),
         `Config card: ${cardState(ctx)}`,
+        'AlphaXiv uses OAuth: /feynman alpha login|status. The legacy key is retained for config compatibility.',
         '',
-        `Usage: /feynman keys set <hf|alphaxiv> <value> stores the key in the managed credentials file.`,
+        `Usage: /feynman keys set <hf|openalex|semanticscholar|alphaxiv> <value> stores the key in the managed credentials file.`,
         `Or export ${refs.hfTokenEnv} / ${refs.alphaxivTokenEnv} before launch; env shadows the store.`,
       ].join('\n'),
     }
   }
   if (args.length < 3 || args[0].toLowerCase() !== 'set') {
-    return { kind: 'error', text: 'Usage: /feynman keys | /feynman keys set <hf|alphaxiv> <value>' }
+    return { kind: 'error', text: 'Usage: /feynman keys | /feynman keys set <hf|openalex|semanticscholar|alphaxiv> <value>' }
   }
   const which = args[1].toLowerCase()
-  const ref = which === 'hf' ? refs.hfTokenEnv : which === 'alphaxiv' ? refs.alphaxivTokenEnv : undefined
-  if (ref === undefined) return { kind: 'error', text: 'Usage: /feynman keys set <hf|alphaxiv> <value>' }
+  const fields = { hf: refs.hfTokenEnv, alphaxiv: refs.alphaxivTokenEnv, openalex: 'OPENALEX_API_KEY', semanticscholar: 'SEMANTIC_SCHOLAR_API_KEY' }
+  const ref = Object.hasOwn(fields, which) ? fields[which] : undefined
+  if (ref === undefined) return { kind: 'error', text: 'Usage: /feynman keys set <hf|openalex|semanticscholar|alphaxiv> <value>' }
   const value = args.slice(2).join(' ')
   if (creds?.set === undefined) {
     return { kind: 'error', text: `Credentials store is not mounted; export ${ref}=… before launch instead.` }
   }
   return creds.set(ref, value).then(
-    () => ({ kind: 'success', text: `${which === 'hf' ? 'Hugging Face' : 'AlphaXiv'} key stored (${ref}). Values are never echoed.` }),
+    () => ({ kind: 'success', text: `${ref} key stored. Values are never echoed.` }),
     (error) => ({ kind: 'error', text: `Could not store key: ${error instanceof Error ? error.message : String(error)}` }),
   )
 }
@@ -213,29 +223,26 @@ function researchHandler(invocation, ctx, sessionHandlers, state) {
   }
   if (!name) return helpHandler({ ...invocation, rawInput: '' })
   const subInvocation = { ...invocation, rawInput: rest }
-  if (WORKFLOWS[name]) return workflowHandler(name, subInvocation, state)
-  const session = sessionHandlers[name]
+  if (Object.hasOwn(WORKFLOWS, name)) return workflowHandler(name, subInvocation, state)
+  const session = Object.hasOwn(sessionHandlers, name) ? sessionHandlers[name] : undefined
   if (session) return session(subInvocation, ctx)
   return err(`Unknown subcommand "${sub}". Usage: /feynman <${[...Object.keys(WORKFLOWS), ...Object.keys(SESSION_COMMANDS)].join(' | ')}>.`)
 }
 
 /** Session subcommands whose handler sends the invocation's attachments to the model. */
-const MESSAGE_SESSION_COMMANDS = new Set(['log', 'init', 'outputs', 'btw'])
+const MESSAGE_SESSION_COMMANDS = new Set(['log', 'init', 'outputs', 'btw', 'run', 'websearch'])
 
 /** Whether `/feynman <name> <rest>` carries its attachments into a queued message. */
 function queuesMessage(name, rest) {
-  if (WORKFLOWS[name]) return !(name === 'review-loop' && rest.toLowerCase() === 'stop')
+  if (Object.hasOwn(WORKFLOWS, name)) return !(name === 'review-loop' && rest.toLowerCase() === 'stop')
   return MESSAGE_SESSION_COMMANDS.has(name)
 }
-
-/** Flag-parsing workflows: the parsed object replaces the raw argument text. */
-const PARSERS = { rank: parseRankArgs, paper: parsePaperArgs }
 
 function workflowHandler(kind, invocation, state) {
   const spec = WORKFLOWS[kind]
   const args = invocation.rawInput.trim()
   const usage = `Usage: /feynman ${kind} ${spec.hint}`
-  if (!spec.optional && !args) return err(usage)
+  if (!args) return err(usage)
   if (kind === 'review-loop' && args.toLowerCase() === 'stop') {
     const loop = state.loops.get(invocation.agent.session.id)
     if (!loop) return { kind: 'success', text: 'No review loop is running.' }
@@ -243,17 +250,17 @@ function workflowHandler(kind, invocation, state) {
     return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
   }
   // Queue the workflow brief as the agent's next turn; the followup IS the work.
-  // Rank and paper parse every flag; unknown --flags are rejected, never absorbed into the topic.
-  const parse = PARSERS[kind]
-  if (parse) {
-    const parsed = parse(args)
-    if (!(parsed.topic || parsed.id)) return err(usage)
+  // Structured workflows reject unknown flags instead of absorbing them into the source/topic.
+  if (kind === 'summarize') {
+    const parsed = parseSummarizeArgs(args)
+    if (parsed.error) return err(parsed.error)
+    if (!parsed.source) return err(usage)
     if (parsed.unsupported.length > 0) {
       return err(`Unsupported flag(s): ${parsed.unsupported.join(', ')}. See \`Usage: /feynman ${kind} ${spec.hint}\`.`)
     }
     const body = buildPrompt(kind, parsed, liveRefs(state))
     invocation.agent.followup(userMessage(invocation, `${kind}: ${args}\n\n${body}`))
-    return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in ${parsed.outputDir ?? 'outputs'}/.` }
+    return { kind: 'success', text: `/feynman ${kind} workflow started. Output lands in outputs/.` }
   }
   const body = kind === 'review-loop'
     ? reviewLoopPrompt(invocation, args, state)
@@ -291,26 +298,8 @@ function userMessage(invocation, text) {
 
 function logHandler(invocation) {
   return followupHandler(invocation,
-    'Write a durable session log for this session: completed work, findings, open questions, and next steps.',
+    'Write a durable session log under notes/: completed work, findings, open questions, decisions, verification state, artifact paths, and next steps. Use a dated name and preserve existing logs.',
     'Session-log request queued as the next turn.')
-}
-
-function jobsHandler(invocation, ctx) {
-  const lines = []
-  const registry = service(ctx, 'jobs')
-  if (typeof registry?.list !== 'function') {
-    lines.push('Job state is unavailable: the jobs seam is not mounted in this profile.')
-  } else {
-    try {
-      const jobs = registry.list(invocation.agent.id)
-      lines.push(jobs.length ? `Background jobs (${jobs.length}):` : 'No background jobs.')
-      for (const job of jobs.slice(0, 20)) lines.push(`- ${job.id}: ${job.label} [${job.status}]`)
-    } catch (error) {
-      lines.push(`Job state is unavailable: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-  lines.push('Durable artifacts: outputs/<slug>-baseline.md (watch), autoresearch.md + autoresearch.jsonl (autoresearch).')
-  return { kind: 'success', text: lines.join('\n') }
 }
 
 async function doctorHandler(invocation, ctx, state) {
@@ -320,19 +309,14 @@ async function doctorHandler(invocation, ctx, state) {
   for (const [label, ref] of [['Hugging Face', refs.hfTokenEnv], ['AlphaXiv', refs.alphaxivTokenEnv]]) {
     lines.push(`- ${label} key (${ref}): ${await keyState(ctx, ref)}`)
   }
+  for (const [label, ref] of [['OpenAlex', 'OPENALEX_API_KEY'], ['Semantic Scholar', 'SEMANTIC_SCHOLAR_API_KEY']]) lines.push(`- ${label} key (${ref}): ${await keyState(ctx, ref)}`)
   const present = (key) => service(ctx, key) !== undefined && service(ctx, key) !== null
-  for (const [label, key] of [['credentials store', 'credentials'], ['settings (config card)', 'settings'],
-    ['jobs', 'jobs'], ['session search', 'sessionQuery'], ['scheduler', 'schedule']]) {
+  for (const [label, key] of [['credentials store', 'credentials'], ['settings (config card)', 'settings'], ['research tools', 'tools'], ['research skills', 'skills'], ['attachments', 'attachments']]) {
     lines.push(`- ${label}: ${present(key) ? 'mounted' : 'absent (related commands degrade to an error or guidance text)'}`)
   }
-  try {
-    const { execFileSync } = await import('node:child_process')
-    execFileSync('pandoc', ['--version'], { stdio: 'ignore' })
-    lines.push('- pandoc: installed (`/feynman preview` can render)')
-  } catch {
-    lines.push('- pandoc: NOT found (`/feynman preview` will give the install command)')
-  }
   lines.push(`- Config card: ${cardState(ctx)}`)
+  try { await import('@llamaindex/liteparse'); lines.push('- Native document parser: available') }
+  catch { lines.push('- Native document parser: unavailable on this installation/platform; check LiteParse optional dependencies') }
   return { kind: 'success', text: lines.join('\n') }
 }
 
@@ -376,7 +360,7 @@ function initHandler(invocation) {
 
 function outputsHandler(invocation) {
   return followupHandler(invocation,
-    'List the research artifacts under outputs/ (group by workflow: *-brief.md deepresearch, *-lit-review.md lit, *-review.md review, *-audit.md audit, *-replication-plan.md replicate, *-recipe.md recipe, *-compare.md compare, *-draft.md draft, *-paper-rank.md + *-research-run.json + *-papers.jsonl + *-scores.jsonl + *-score-audit.md + *-citation-graph.json + *-graph-explorer.html + *-field-map.json + *-rank-sensitivity.json + *-rank.provenance.md rank, *-paper-access.md + *-paper-access.json paper, *-baseline.md watch). Summarize what each contains in one line.',
+    'List research artifacts under outputs/, papers/, experiments/, and notes/ when present (group outputs by workflow: *-brief.md deepresearch, *-lit-review.md + *-lit-review.provenance.md lit, *-review.md review, *-audit.md audit, *-replication-plan.md replicate, *-recipe.md recipe, *-compare.md compare, *-draft.md draft, *-summary.md summarize). Include provenance, plans, notes, and any older research artifacts found. Summarize what each contains in one line; list paths, not raw source bodies.',
     'Artifact listing queued as the next turn.')
 }
 
@@ -396,63 +380,81 @@ function thinkingHandler(invocation) {
   return { kind: 'success', text: `Thinking level noted: ${level}. Applies where the model route supports it.` }
 }
 
-/**
- * Run the full-text search when the session-query seam is mounted, so the
- * result is the search itself. An unmounted seam is an error, never a success
- * that claims work happened.
- */
-async function searchHandler(invocation, ctx) {
-  const q = invocation.rawInput.trim()
-  if (!q) return err('Usage: /feynman search <query>')
-  const engine = service(ctx, 'sessionQuery')
-  if (typeof engine?.searchSessions !== 'function') {
-    return err(`Full-text search is not mounted in this profile (session-query seam).` +
-      ` Grep this session's history instead: rg -n "${q.replaceAll('"', "'")}" <session-dir>.`)
-  }
-  let page
-  try {
-    page = await engine.searchSessions({ query: q, limit: 10 })
-  } catch (error) {
-    return err(`Session search failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  const hits = Array.isArray(page?.items) ? page.items : []
-  if (hits.length === 0) return { kind: 'success', text: `No past sessions match "${q}".` }
-  const lines = [`Past sessions matching "${q}" (${hits.length}):`]
-  for (const hit of hits) {
-    const raw = typeof hit?.bestMatch?.snippet === 'string' ? hit.bestMatch.snippet.replace(/\s+/g, ' ').trim() : ''
-    lines.push(`- ${hit?.header?.id ?? 'unknown'}: ${raw.length > 160 ? `${raw.slice(0, 157)}…` : raw || '(no excerpt)'}`)
-  }
-  if (page.nextCursor !== undefined) lines.push('More matches exist; narrow the query to see them.')
-  return { kind: 'success', text: lines.join('\n') }
-}
-
 export function apply(ctx, config = {}) {
   const state = createState(config)
+
+  ctx.inject?.(['tools'], (scope) => {
+    state.toolRuntime = scope.tools
+    state.research = mountResearchTools(scope, () => liveRefs(state))
+    scope.tools.register(createRoleTool())
+    scope.tools.register(createSearchContentTool())
+    scope.tools.register(createWorkflowTool(() => liveRefs(state)))
+    if (!scope.tools.schemas?.().some((tool) => tool.name === 'code_search')) scope.tools.register(createCodeSearchTool(scope.tools))
+  })
+  ctx.inject?.(['skills'], (scope) => scope.skills.registerProvider(createResearchSkillProvider))
+  ctx.inject?.(['systemPrompt'], (scope) => scope.systemPrompt.section({
+    name: 'feynman-research', order: 700, interpolate: false,
+    text: () => `Research date (UTC): ${new Date().toISOString().slice(0, 10)}. Prefer primary evidence; distinguish source assertions, inferences, and verified checks. Research tools: feynman_science_database_search, Hugging Face inspection, document_parse/search/screenshot, authenticated alpha tools when visible. Load feynman_research_role before role-specific delegation; use DSH's actual subagent schema and consume completed results before synthesis. Never invent measurements or citations; keep numeric claims and visuals tied to raw evidence. Write final research artifacts and provenance to disk and check they exist before delivery. Read existing CHANGELOG.md before resuming substantial work; append meaningful progress and blockers, not trivial one-shot changes.`,
+  }))
+  ctx.effect(() => () => { state.disposed = true; state.loginProcess?.kill() })
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    if (decision.kind !== 'accept' || result.isError || exec.name !== 'web_search' || !state.curator.has(exec.agent?.session?.id)) return decision
+    exec.signal.throwIfAborted()
+    return { ...decision, additionalContexts: [...(decision.additionalContexts ?? []), createUserMessage({
+      source: { kind: 'feynman', form: 'relay' },
+      content: [{ type: 'text', text: 'Search curator is on: show a shortlist of the retrieved sources with URLs and snippets, then wait for the user to choose sources before fetching or synthesizing. Report blocks and empty results honestly.' }],
+    })] }
+  })
 
   ctx.effect(() => {
     const disposers = []
     const sessionHandlers = {
-      log: logHandler, jobs: jobsHandler, help: helpHandler,
-      'feynman-model': () => ({
-        kind: 'success',
-        text: 'This profile runs one model route (see the agent-default-model row in the composed config). To change it, edit the profile patch or settings; per-turn model overrides are not supported here.',
-      }),
+      log: logHandler, help: helpHandler,
       init: initHandler, outputs: outputsHandler, btw: btwHandler, thinking: thinkingHandler,
-      search: searchHandler,
-      'web-results': () => ({
-        kind: 'success',
-        text: 'Stored web results live in this session log (web_search/web_fetch tool calls). Ask me to summarize the sources fetched so far and I will reconstruct them from history.',
-      }),
       keys: (inv, context) => keysHandler(inv, context, state),
       doctor: (inv, context) => doctorHandler(inv, context, state),
       status: (inv, context) => statusHandler(inv, context, state),
+      tools: () => {
+        if (!state.toolRuntime) return err('The tools service is not mounted.')
+        const tools = state.toolRuntime.schemas?.() ?? [...(state.research?.tools ?? []), createRoleTool(), createSearchContentTool()]
+        return { kind: 'success', text: tools.map((tool) => `${tool.name}: ${tool.description.split('\n')[0]}\n  Parameters: ${Object.keys(tool.parameters?.properties ?? {}).join(', ') || '(none)'}`).join('\n') || 'No tools are registered.' }
+      },
+      subagents: () => ({ kind: 'success', text: Object.entries(ROLES).map(([role, spec]) => `${role}: ${spec.description}`).join('\n') }),
+      run: (inv) => {
+        const [, role, task] = inv.rawInput.match(/^(\S+)\s+([\s\S]+)$/) ?? []
+        if (!Object.hasOwn(ROLES, role ?? '') || !task?.trim()) return err('Usage: /feynman run <researcher|reviewer|writer|verifier> <task>')
+        inv.agent.followup(userMessage(inv, `Run the ${role} research role for this task: ${task}\n\n${ROLES[role].content}\n\nDelegate through the visible DSH subagent tool when available, including these role rules and the task in its prompt; otherwise perform the role as lead. Use file outputs and verify completion before delivery.`))
+        return { kind: 'success', text: `${role} task queued as the next turn.` }
+      },
+      alpha: async (inv) => {
+        try { return { kind: 'success', text: await alphaCommand(inv, state, (text) => {
+          if (!state.disposed) { try { inv.agent.inject(userMessage({ ...inv, attachments: [] }, text)) } catch {} }
+        }) } } catch (error) { return err(error instanceof Error ? error.message : String(error)) }
+      },
+      search: (inv) => {
+        const results = storedWebResults(inv.agent.session, inv.rawInput.trim()).slice(-40)
+        return { kind: 'success', text: results.length ? results.map((item) => `${item.id} [${item.tool}${item.isError ? ', failed' : ''}]: ${item.text.replace(/\s+/g, ' ').slice(0, 350)}`).join('\n') : 'No matching stored web results in this session.' }
+      },
+      websearch: (inv) => {
+        if (!inv.rawInput.trim()) return err('Usage: /feynman websearch <query>')
+        return followupHandler(inv, `Run web_search with the user's queries. Show source URLs and snippets; ${state.curator.has(inv.agent.session.id) ? 'wait for source selection before fetching or synthesis' : 'fetch and inspect the most relevant primary sources, then summarize with citations'}. Save findings and search provenance under outputs/.notes/.`, 'Web research queued as the next turn.')
+      },
+      curator: (inv) => {
+        const mode = inv.rawInput.trim().toLowerCase()
+        const id = inv.agent.session.id
+        if (!mode) return { kind: 'success', text: `Search curator: ${state.curator.has(id) ? 'on' : 'off'}.` }
+        if (!['on', 'off'].includes(mode)) return err('Usage: /feynman curator [on|off]')
+        if (mode === 'on') state.curator.add(id); else state.curator.delete(id)
+        return { kind: 'success', text: `Search curator: ${mode}.` }
+      },
     }
     // One top-level name; everything else rides `feynman <subcommand>`.
-    // Bare generic names (log, jobs, help, …) belong to the host or the user.
+    // Bare generic names (log, help, …) belong to the host or the user.
     disposers.push(ctx.commands.register({
       definitionId: 'dsh-feynman:feynman',
       name: 'feynman',
-      description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, jobs, help, init, outputs, btw, thinking, search, web-results, keys, doctor, status)',
+      description: '⟁ Research workflows and session utilities (subcommands: workflow names plus log, help, init, outputs, btw, thinking, keys, doctor, status)',
       input: { hint: '<workflow | subcommand> [args]', attachments: true },
       recordInput: false,
       handler: (inv) => researchHandler(inv, ctx, sessionHandlers, state),
@@ -488,7 +490,7 @@ export function apply(ctx, config = {}) {
       agent.followup(message)
     })
     // A session that goes away mid-loop takes its loop state with it.
-    const offDisposed = ctx.on('session/disposed', (session) => { state.loops.delete(session.id) })
+    const offDisposed = ctx.on('session/disposed', (session) => { state.loops.delete(session.id); state.curator.delete(session.id) })
     return () => { offTurn?.(); offDisposed?.(); for (const d of disposers) d() }
   })
 }

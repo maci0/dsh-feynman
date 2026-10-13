@@ -1,0 +1,82 @@
+[
+  {
+    "name": "feynman-alpha-research",
+    "description": "Search, read, and query research papers via Feynman's alphaXiv-backed alpha tools. Use when the user asks about academic papers, wants to find research on a topic, needs to read a specific paper, ask questions about a paper, inspect a paper's code repository, or manage paper annotations.",
+    "file": "skills/feynman-alpha-research.md"
+  },
+  {
+    "name": "feynman-autoresearch",
+    "description": "Bounded research experiment loop that tries hypotheses, measures benchmark evidence, keeps what works, and records what fails. Use when the user asks to optimize a research metric, run an experiment loop, improve model/retrieval/evaluation performance iteratively, or benchmark a research hypothesis.",
+    "file": "skills/feynman-autoresearch.md"
+  },
+  {
+    "name": "feynman-deep-research",
+    "description": "Run a thorough, source-heavy investigation on any topic. Use when the user asks for deep research, a comprehensive analysis, an in-depth report, or a multi-source investigation. Produces a cited research brief with provenance tracking.",
+    "file": "skills/feynman-deep-research.md"
+  },
+  {
+    "name": "feynman-docker",
+    "description": "Execute research code inside isolated Docker containers for safe replication, experiments, and benchmarks. Use when the user selects Docker as the execution environment or asks to run code safely, in isolation, or in a sandbox.",
+    "file": "skills/feynman-docker.md"
+  },
+  {
+    "name": "feynman-eli5",
+    "description": "Explain research, papers, or technical ideas in plain English with minimal jargon, concrete analogies, and clear takeaways. Use when the user says \"ELI5 this\", asks for a simple explanation of a paper or research result, wants jargon removed, or asks what something technically dense actually means.",
+    "file": "skills/feynman-eli5.md"
+  },
+  {
+    "name": "feynman-literature-review",
+    "description": "Run a literature review using paper search and primary-source synthesis. Use when the user asks for a lit review, paper survey, state of the art, or academic landscape summary on a research topic.",
+    "file": "skills/feynman-literature-review.md"
+  },
+  {
+    "name": "feynman-ml-training-recipe",
+    "description": "Find implementable ML training recipes from papers, datasets, docs, and code. Use when the user wants to fine-tune, train, reproduce, or choose a practical ML method, dataset, hyperparameter setup, or benchmark recipe.",
+    "file": "skills/feynman-ml-training-recipe.md"
+  },
+  {
+    "name": "feynman-paper-code-audit",
+    "description": "Compare a paper's claims against its public codebase. Use when the user asks to audit a paper, check code-claim consistency, verify reproducibility of a specific paper, or find mismatches between a paper and its implementation.",
+    "file": "skills/feynman-paper-code-audit.md"
+  },
+  {
+    "name": "feynman-paper-writing",
+    "description": "Turn research findings into a polished paper-style draft with sections, equations, and citations. Use when the user asks to write a paper, draft a report, write up findings, or produce a technical document from collected research.",
+    "file": "skills/feynman-paper-writing.md"
+  },
+  {
+    "name": "feynman-pdf-explore",
+    "description": "Read, extract, and cross-check content across scientific PDFs. Use when a task needs methods, figures, tables, citations, accessions, or claims from multiple places in one or more papers.",
+    "file": "skills/feynman-pdf-explore.md"
+  },
+  {
+    "name": "feynman-preview",
+    "description": "Render Markdown or LaTeX research artifacts to HTML or PDF with pandoc. Use when the user wants to review a written artifact, export a report, or view a rendered document.",
+    "file": "skills/feynman-preview.md"
+  },
+  {
+    "name": "feynman-replication",
+    "description": "Plan a replication of a paper, claim, or benchmark, and execute only after an explicit environment choice. Use when the user asks to replicate results, reproduce an experiment, verify a claim empirically, or build a replication package.",
+    "file": "skills/feynman-replication.md"
+  },
+  {
+    "name": "feynman-research-review",
+    "description": "Run a tough but constructive internal research critique of an AI research artifact. Use when the user asks for a review, critique, feedback on a paper or draft, or wants to identify weaknesses before submission.",
+    "file": "skills/feynman-research-review.md"
+  },
+  {
+    "name": "feynman-session-log",
+    "description": "Write a durable session log capturing completed work, findings, open questions, and next steps. Use when the user asks to log progress, save session notes, write up what was done, or create a research diary entry.",
+    "file": "skills/feynman-session-log.md"
+  },
+  {
+    "name": "feynman-session-search",
+    "description": "Search prior Feynman session transcripts on disk. Use when the user asks about earlier research sessions, past findings, or wants to resume a prior session.",
+    "file": "skills/feynman-session-search.md"
+  },
+  {
+    "name": "feynman-source-comparison",
+    "description": "Compare multiple sources on a topic and produce a grounded comparison matrix. Use when the user asks to compare papers, tools, approaches, frameworks, or claims across multiple sources.",
+    "file": "skills/feynman-source-comparison.md"
+  }
+]

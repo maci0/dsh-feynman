@@ -1,7 +1,12 @@
 DSH Feynman: provenance notice
 
-Workflow behavior adapted from Feynman (https://www.feynman.is/docs).
-© Companion, Inc. The prompts in this repository are original briefs written
-from the documented behavior, not copied text.
+Research clients, workflow protocols, role instructions, and skills adapted
+from Feynman v0.5.41 (https://github.com/Companion-Inc/feynman), © 2026
+Companion, Inc. See vendor/upstream/LICENSE and upstream.manifest.json.
+
+Document tools adapted from pi-docparser v4.0.0, © 2026 MaxedApps GmbH /
+Maximilian Schwarzmüller.
+See vendor/docparser/LICENSE and upstream.manifest.json. LiteParse is an
+external dependency distributed under Apache-2.0 by LlamaIndex.
 
 This project is distributed under the MIT License; see LICENSE.

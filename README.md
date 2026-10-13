@@ -1,126 +1,108 @@
 # dsh-feynman
 
-A question lands mid-session: *what are the current approaches to mechanistic interpretability?* You type `/feynman deepresearch "mechanistic interpretability"`, the brief becomes the agent's next turn, and a cited research document lands in `outputs/`. That is the whole trick: 27 subcommands that queue a workflow as the next turn instead of making you describe the workflow in prose. Adapted from [Feynman](https://www.feynman.is/docs/reference/slash-commands) (see [licence](#licence)); the prompts are original briefs written from the documented behaviour, not copied text.
+Research workflows and tools for DeepSeek Harness, adapted from [Feynman v0.5.41](https://github.com/Companion-Inc/feynman/tree/17dfe0f87defa754ea915e834e9f401d292ae3d2). `/feynman deepresearch "mechanistic interpretability"` queues the investigation as the agent's next turn and produces a cited research document with provenance.
 
-## What you get
-
-- **14 research workflows** behind one `/feynman` dispatcher: deep research, literature review, severity-graded critique, a bounded review loop, paper-vs-code audit, replication plans, ML recipes, source comparison, drafting, autonomy loops, topic watching, PaperRank, full-text access, pandoc preview.
-- **13 session commands** for the housekeeping around that work: logs, jobs, artifact listing, key status, session search, doctor.
-- **A real review loop.** `/feynman review-loop` keeps iterating review → fix → re-review on its own: when a round's turn completes, the next round is queued, until rounds run out. `/feynman review-loop stop` ends it early.
-- **A subcommand picker.** Bare `/feynman` opens a popup listing every subcommand with its arguments; picking a row submits `/feynman <sub>`.
-- **A Research Keys card** on the **Plugins** page: open the `dsh-feynman` bundle, then the `feynman` row's **Configure** control. Hugging Face and AlphaXiv keys are stored through the credentials domain, never in settings.
-- **Key-aware briefs.** Every workflow brief names the live credential refs and treats an unset one as blocked instead of guessing.
+The plugin supplies 11 workflows, 16 session commands, 16 research skills, and four research roles. It also mounts actual literature clients, Hugging Face inspection, document parsing/search/screenshots, and authenticated AlphaXiv tools. Workflows are model instructions; retrieval and document tools are executable implementations.
 
 ## Install
 
-> **Install it as a bundle.** `dsh plugin add …` mounts the row from the
-> package's own patch layer, which is what the settings editor can write to. A
-> row added with `--patch` is an overlay: it disappears at the next start, and
-> the Plugins card cannot save into it (the editor refuses a write an overlay
-> would win).
-
 ```sh
-dsh plugin --profile web add github:maci0/dsh-feynman#v0.21.3
+dsh plugin --profile web add github:maci0/dsh-feynman#v0.22.0
 ```
 
-Pin a release tag: a bare `github:` spec floats on `main`. To upgrade, run the
-same command with the newer tag, then restart `dsh web` (bundle layers compose
-at boot).
+Install as a bundle, then restart `dsh web` and refresh the browser. The package's own `cordis.patch.yml` mounts its writable configuration row. Do not also insert the row into the profile patch: Cordis does not deduplicate row IDs.
 
-## Commands
+Node `^22.22.0 || >=24.0.0` is required; the Alpha Hub dependency sets the Node 22 floor. A bare GitHub spec follows `main`; pin a tag for reproducible installs. `/feynman doctor` reports mounted research seams and key state. `/feynman tools` lists the actual tool catalog.
 
-Quick check after the restart: `/feynman doctor` reports key state, mounted seams, pandoc, and the config card.
+## Research workflows
 
-Every workflow subcommand queues its brief as the agent's next turn; the queued turn *is* the work.
+Each workflow queues a frozen, plugin-branded user message as the next model turn. Attachments are carried into that turn. Bare `/feynman` opens a subcommand picker; selecting a command that needs arguments returns its usage line.
 
-| Command | What it produces |
+| Command | Result |
 |---|---|
-| `/feynman deepresearch <topic>` | Research brief: Summary, Background, Key Findings, Open Questions, References, plus a provenance sidecar. Plan is confirmed before execution. |
-| `/feynman lit <topic-or-lab>` | Literature review: consensus, disagreements, open questions, timeline. Lab/PI corpus mode keeps a reachable-publication log. |
-| `/feynman review <arXiv-ID \| URL \| file>` | Severity-graded critique (critical/major/minor/nit) with confidence scores. Draft evidence under `outputs/.drafts/`. |
-| `/feynman review-loop <artifact> [rounds]` | Bounded review → fix → re-review loop. Default 3 rounds; a count outside 1 to 10 is clamped to that range. `stop` ends it early. DSH-native, no upstream equivalent. |
-| `/feynman audit <repo> [--paper <id>]` | Paper-vs-code mismatch report with file paths and line numbers. Repo found via paper links, Papers With Code, GitHub search. |
-| `/feynman replicate <paper-or-claim>` | Replication plan. Executes only after you pick an environment; a result is `replicated` only when the planned checks pass. |
-| `/feynman recipe <task>` | Ranked implementable ML training recipes with dataset, method, and hyperparameter links. |
-| `/feynman compare <topic-or-sources>` | Agreement/disagreement matrix across sources. |
-| `/feynman draft <topic \| --from-session>` | Academic draft with inline citations. Unsupported claims become TODOs, never invented. |
-| `/feynman autoresearch <idea>` | Bounded hypothesis → experiment → analysis → decision loop against a benchmark (log, JSONL, CHANGELOG milestones). |
-| `/feynman watch <topic>` | Baseline survey plus a refresh plan. Each check compares against the baseline. |
-| `/feynman rank <topic> [flags]` | PaperRank: run manifest, ranked brief, paper/score JSONL, score audit, citation graph + HTML explorer, field map, sensitivity data, provenance. |
-| `/feynman paper <id> [--fetch-full-text] [--json]` | Legal full-text access candidates, no paywall bypasses. Writes `<slug>-paper-access.md` and `.json`. |
-| `/feynman preview [artifact]` | Pandoc render of an artifact (HTML/PDF). |
+| `deepresearch <topic>` | Planned investigation, cited brief, intermediate evidence, adversarial checks, provenance. Continues after planning; add “show me the plan first” to request approval. |
+| `lit <topic-or-lab>` | Literature review with consensus, disagreements, open questions, verified citations and provenance. Lab/author mode resolves identity and logs reachable publications. |
+| `review <arXiv-ID \| URL \| file>` | Internal critique with severity and confidence, evidence notes, reproducibility checks, and a revision recommendation. |
+| `review-loop <artifact> [rounds]` | DSH review → fix → re-review driver. Three rounds by default, clamped to 1–10. `stop` ends it early. |
+| `audit <arXiv-ID \| repo> [--paper ID]` | Paper claims compared with implementation, with exact source/code locations and reproducibility risks. |
+| `replicate <paper-or-claim>` | Source-backed replication plan. Execution waits for an explicit environment choice. |
+| `recipe <task>` | Ranked ML recipes with result, dataset, hyperparameters, compute, implementation, availability checks and provenance. |
+| `compare <topic-or-sources>` | Evidence, agreement/disagreement, methodology and confidence matrix. |
+| `draft <topic \| --from-session>` | Paper-style draft under `papers/`; unsupported results remain gaps or TODOs. |
+| `autoresearch <idea>` | Bounded hypothesis → experiment → analysis → decision loop, with benchmark checks and durable experiment records. |
+| `summarize <source> [flags]` | Single-source summary of a paper, report, repository README, local file or PDF, with bounded reading and coverage notes. |
 
-Session subcommands: `log`, `jobs`, `help`, `feynman-model`, `init`, `outputs`, `btw`, `thinking`, `search`, `web-results`, `keys`, `doctor`, `status`.
+Prefix every command with `/feynman`.
 
-`/feynman search <query>` runs a real full-text search over prior sessions and prints matching session ids with excerpts. The other seam-backed commands (`jobs`, `web-results`) degrade to an error or one line of guidance when their seam is not mounted, never to a success message claiming work happened.
-
-Rank example:
-
-```
-/feynman rank "scaling laws" --limit 20 --json
-/feynman rank "scaling laws" --expand-citations 2 --full-text-top 3 --critique-top 5
-/feynman rank "scaling laws" --preference-file preferences.json --reproduction-notes notes.json --synthesize --synthesis-model provider/model
+```text
+/feynman summarize "papers/long report.pdf"
+/feynman summarize https://github.com/owner/repo --window-size 4000 --overlap 100
 ```
 
-Unknown `--flags` are rejected, never absorbed into the topic.
+Summarize controls count decoded characters: `--window-size` (6000), `--overlap` (500), `--tier1-threshold` (8000), `--tier2-threshold` (60000). Inputs below tier 1 are read directly; longer inputs use overlapping windows, then chunks with up to four concurrent children when available. Sequential reading is the fallback. Window size must exceed overlap, and `0 < tier1 < tier2`. Invalid values and unknown flags fail before work is queued. Quote paths containing spaces. A summary describes the supplied source and does not independently verify its claims.
 
-## Configure
+## Research tools and roles
 
-Row config in the Loader entry:
+`feynman_science_database_search` covers Semantic Scholar, OpenAlex, known arXiv IDs, PubMed, Europe PMC, bioRxiv, medRxiv and Crossref. The upstream clients retain exact lookup modes, citation/reference and author/venue queries, PubMed ID conversion/related/citation/full-text routing, OA section extraction, pacing, bounded retry, and discovery-index fallback. Explicit arXiv versions remain distinct.
 
-| Field | Default | Meaning |
-|---|---|---|
-| `hfTokenEnv` | `HF_TOKEN` | Env-var name holding the Hugging Face key. |
-| `alphaxivTokenEnv` | `ALPHAXIV_API_KEY` | Env-var name holding the AlphaXiv key. |
+`hf_dataset_info`, `hf_repo_files`, and `hf_repo_read_file` inspect Hub metadata, schemas/splits, inventories and small text files. Credentials resolve per call through DSH; environment values take precedence. Keys are removed from returned evidence and errors.
 
-A value that is not an env-var name (letters, digits, underscore) fails the row at load. Loop and rank cadences are fixed in code: `/feynman review-loop` runs 3 rounds by default with a cap of 10, and `/feynman rank` lists 20 papers by default with a cap of 100.
+`document_parse`, `document_search`, and `document_screenshot` use the same LiteParse 2.10.1 version upstream's pi-docparser 4.0.0 pins. Native work runs in isolated, cancellable subprocesses with bounded outputs. Screenshots are delivered through DSH's attachments service when mounted and retain saved-file references. Document and custom OCR-data paths must resolve inside the session's effective workspace, including symlink targets. Office conversion/OCR can need LibreOffice/Tesseract; missing dependencies are reported. DOCX paragraph extraction is available without LibreOffice, with layout/table/footnote/image gaps stated explicitly.
 
-Keys, in precedence order (environment shadows the store):
+`code_search` uses an existing host code-search tool when mounted; otherwise the plugin bridges to host web search for public repository/docs examples. `feynman_search_content` reads bounded stored web results from this session. `feynman_workflow` lets an agent load and perform a workflow without a human slash command.
 
-1. **Config card**: password field per key, set/unset badge (unknown, with the reason as a tooltip, when the lookup fails), Save, Clear.
-2. **Shell**: `export HF_TOKEN=hf_… ALPHAXIV_API_KEY=…` before launch.
-3. **Command**: `/feynman keys` shows status without echoing values; `/feynman keys set <hf|alphaxiv> <value>` stores into `$DSH_HOME/.credentials.yaml`.
+`feynman_research_role` provides the upstream researcher, writer, verifier and reviewer protocols. `/feynman subagents` lists them; `/feynman run <role> <task>` queues the role task. These are research roles applied through DSH's actual subagent interface, not Pi model aliases or workflow scripts. Missing delegation falls back to lead-owned work. Sixteen prefixed `feynman-*` skills cover literature, critique, replication, recipes, comparison, writing, experiments, paper access, PDF exploration, plain-language explanation, preview and continuity.
 
-`HUGGINGFACE_HUB_TOKEN` works too: point `hfTokenEnv` at it. The AlphaXiv key is spent through `web_fetch` against the AlphaXiv API; without it, briefs fall back to arXiv and OpenAlex and mark citation-metadata and discussion checks blocked.
+## AlphaXiv
 
-## How it works
+```text
+/feynman alpha login
+/feynman alpha status
+/feynman alpha search "transformer scaling laws" --mode semantic
+/feynman alpha get 2106.09685 --full-text
+/feynman alpha ask 2106.09685 "What optimizer did they use?"
+/feynman alpha code https://github.com/owner/repo src/model.py
+/feynman alpha annotate 2106.09685 "Check the ablations"
+/feynman alpha annotate --clear 2106.09685
+/feynman alpha annotate --list
+/feynman alpha logout
+```
 
-Each subcommand queues a frozen user message as the agent's next turn. The message is built with `createUserMessage` and branded with a plugin source, so the harness does not mistake it for human typing. The queued turn is the work.
+The bundled Alpha Hub client handles OAuth and refresh. Login displays its consent URL; on a remote host, pass the final callback URL with `/feynman alpha login <callback-URL>`. Credentials stay in Alpha Hub's protected `~/.ahub/auth.json`. Account tools mount after sign-in and are removed on logout; local annotations stay available. Missing or failed access falls back to literature sources with AlphaXiv-only checks marked blocked. The legacy AlphaXiv key field remains compatible with existing configuration but does not authenticate this OAuth client.
 
-A review-loop round is the turn that carries the loop's own queued message (the harness records it as that turn's `user/message`). Only that turn's completion queues the next round, so a turn already running when the loop starts, or a turn you send in between, does not count. A round turn that ends any other way (error, abort, blocked, token limit) ends the loop; start it again to continue.
+## Session commands
 
-Retrieval maps to `web_search` / `web_fetch` plus the workspace tools (`read`, `grep`, `glob`, `bash`); there are no separate paper or dataset tools. Broad work fans out through the `subagent` tool, narrow explainers stay lead-owned.
+`log`, `help`, `init`, `outputs`, `btw`, `thinking`, `keys`, `doctor`, `status`, `tools`, `subagents`, `run`, `alpha`, `search`, `websearch`, `curator`.
 
-Artifacts land under `outputs/`: `*-brief.md`, `*-lit-review.md`, `*-review.md`, `*-audit.md`, and so on. `/feynman outputs` lists them; `/feynman log` writes the session log. Rank writes the full PaperRank set (`*-research-run.json`, `*-papers.jsonl`, `*-scores.jsonl`, `*-score-audit.md`, `*-citation-graph.json`, `*-graph-explorer.html`, `*-field-map.json`, `*-rank-sensitivity.json`, `*-rank.provenance.md`) plus critique, calibration, reproduction, and synthesis outputs when the matching flags are passed.
+`/feynman search [query]` browses **stored web results in the current session**. `/feynman websearch <query>` queues live web research. `/feynman curator on` asks the model to show retrieved URLs/snippets and wait for source selection before fetching or synthesis; `off` disables it. Curator state is session-local and ends with disposal/restart.
 
-The package declares `dsh.bundle`, so `dsh plugin add` appends it to `dsh.profile.bundles` and the shipped `cordis.patch.yml` applies as a layer. Do not also paste that row into the profile's own `cordis.patch.yml`: `insert` does not dedupe ids, so the plugin would mount twice.
+`outputs` browses `outputs/`, `papers/`, `experiments/` and `notes/`, including older research artifacts. Plans and draft evidence remain under `outputs/.plans/` and `.drafts/`; summarization checkpoints use `.notes/`. `log` writes a durable session record. `init` bootstraps research directories and preserves existing project instructions. `btw` injects non-waking side-question context; it does not start Pi's independent side-thread runtime. `thinking` records a reasoning preference without pretending to change provider configuration.
 
-## Limits
+## Credentials
 
-- **The picker submits the bare subcommand.** A subcommand that needs an argument answers with its usage line; type the argument after it.
-- **Attachments ride only on subcommands that queue a model message**: the workflows, `log`, `init`, `outputs`, and `btw`. Any other subcommand refuses an invocation that carries attachments, so the composer keeps them.
-- **Review-loop state is instance-local.** Loops live in the `apply` closure, keyed by session id, and a disposed session drops its loop. A profile restart forgets them.
-- **A browser-half edit needs a page refresh.** The client module system serves `exports["./client"]` from the package; the host half can stay up.
-- **Host source edits remount only with `id: hmr` enabled** and this checkout in `config.root`. Without it, a live patch reload re-runs `apply` from the module already in memory.
-- **Ranking is a live heuristic.** Scores are computed transparently in-session and the output says so. They are not a fitted model and not a deterministic scorer.
-- **One locale.** The card ships English copy; other active locales fall back to it. The browser bundle exports only `apply` and `inject`, and registers one locale dictionary.
-- **No paywall bypasses, ever.** Unreachable sources are marked blocked, never inferred.
+The Plugins page's `feynman` row has a Research Keys card. `hfTokenEnv` defaults to `HF_TOKEN`; `alphaxivTokenEnv` defaults to legacy `ALPHAXIV_API_KEY`. Both are validated env-var references. Save/Clear operates on DSH's credential store, never settings; `/feynman keys` reports state without echoing values.
+
+`/feynman keys set <hf|openalex|semanticscholar> <value>` stores a research key. `OPENALEX_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY` are resolved from DSH's credentials service or the environment per operation. Export `HUGGINGFACE_HUB_TOKEN` as an HF fallback, or point `hfTokenEnv` at it. `NCBI_API_KEY`, `NCBI_EMAIL` and `CROSSREF_MAILTO` retain upstream's environment behavior. AlphaXiv uses `/feynman alpha login`, not an API-key field. Never put secret literals in prompts or artifacts.
+
+## Upgrade from 0.21.x
+
+Upstream-retired `rank`, `paper`, `watch`, `jobs`, `preview`, `feynman-model` and `web-results` are removed. Prior-session `search` is removed too; the name now matches upstream's stored-web-results behavior. Use `lit`/`deepresearch` for discovery and read-order guidance, `summarize` for one source, the preview skill for rendering, and DSH's own job/model/session controls. Existing files are not deleted. The DSH review loop remains.
+
+The [capability comparison](docs/upstream-20261013.md) maps upstream research capabilities to this release. Pi-specific provider, terminal and session controls remain the host's responsibility.
 
 ## Development
 
-Plain JavaScript, no build step. `index.js` is the host half, `prompts.js` is the pure workflow catalog (no harness imports), `lib/client.js` is the browser half.
-
 ```sh
 bun install --frozen-lockfile
+bun run build
 bun test
+bun run test:node
 ```
 
-dsh loads plugins on Node `^22.19.0 || >=24.0.0`; development and tests run on bun.
+The committed `lib/upstream.js` bundles adapted, pinned research/document sources for Node; the host and browser entry points stay JavaScript. CI verifies Bun and Node 22.22/24. Source hashes and versions live in `upstream.manifest.json`; `vendor/` holds the matching code and licenses. Tests cover real Cordis/tool-runtime mounting and teardown, retrieval fixtures, credentials/cancellation, PubMed parser regressions, native PDF parsing/search/screenshots, workspace confinement, roles/skills, stored results, curator behavior, command relays and review-loop ownership.
 
-Coverage: prompt construction, dispatcher registration for every subcommand, attachment refusal, review-loop rounds through the agents registry, per-instance loop state, credential-ref validation failures, jobs and session search against fake seams, the card's registration, hook order, ready-gating, and non-leaking of key literals, and a real Cordis composition.
-
-For local development, `dsh plugin --profile <name> add <path-to-checkout>`.
+Loops and curator state are instance-local. Host edits require remounting/HMR; browser edits require a page refresh. Authenticated remote services still require the user's account and available network routes. No paywall bypasses.
 
 ## Licence
 
-MIT. Workflow behaviour adapted from [Feynman](https://www.feynman.is/docs) © Companion, Inc.; the prompts are original briefs. DSH port: see `LICENSE`.
+MIT. Research clients, workflow protocols, role instructions and skills adapted from Feynman © 2026 Companion, Inc. Document tools adapted from pi-docparser © 2026 MaxedApps GmbH / Maximilian Schwarzmüller. See `NOTICE` and the bundled third-party licenses. LiteParse is an external Apache-2.0 dependency.

@@ -1,23 +1,22 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { slugify, stripArxivPrefix, parseLoopArgs, parseRankArgs, parsePaperArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from '../prompts.js'
+import { slugify, stripArxivPrefix, parseLoopArgs, parseSummarizeArgs, loopFollowupPrompt, buildPrompt, WORKFLOWS, SESSION_COMMANDS, THINKING_LEVELS } from '../prompts.js'
 import { apply } from '../index.js'
 
 // Every Feynman workflow slash command is mapped.
 test('all Feynman workflow commands mapped', () => {
-  for (const cmd of ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'preview']) {
+  for (const cmd of ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch']) {
     assert.ok(WORKFLOWS[cmd], `missing /${cmd}`)
     assert.ok(WORKFLOWS[cmd].prompt('x').length > 100, `/${cmd} prompt is a stub`)
   }
   assert.ok(WORKFLOWS['review-loop'], 'missing /review-loop')
-  assert.ok(WORKFLOWS.rank.prompt({ topic: 'x', limit: 20 }).length > 100, 'rank prompt is a stub')
-  assert.ok(WORKFLOWS.paper.prompt({ id: 'x' }).length > 100, 'paper prompt is a stub')
+  assert.ok(WORKFLOWS.summarize.prompt(parseSummarizeArgs('paper.pdf')).length > 100, 'summarize prompt is a stub')
 })
 
 // Every Feynman session/utility command is mapped.
 test('all session commands mapped', () => {
-  for (const cmd of ['log', 'jobs', 'help', 'feynman-model', 'init', 'outputs', 'btw', 'thinking', 'search', 'web-results', 'keys', 'doctor', 'status']) {
+  for (const cmd of ['log', 'help', 'init', 'outputs', 'btw', 'thinking', 'keys', 'doctor', 'status']) {
     assert.ok(SESSION_COMMANDS[cmd], `missing /${cmd}`)
   }
   assert.ok(THINKING_LEVELS.includes('max') && THINKING_LEVELS.includes('off'))
@@ -26,9 +25,7 @@ test('all session commands mapped', () => {
 // The composed brief carries live key refs and still assumes nothing else.
 test('composed brief names key refs, nothing external', () => {
   for (const [cmd, spec] of Object.entries(WORKFLOWS)) {
-    const arg = cmd === 'rank' ? { topic: 'sample input', limit: 20 }
-      : cmd === 'paper' ? { id: 'sample input' }
-        : 'sample input'
+    const arg = cmd === 'summarize' ? parseSummarizeArgs('sample input') : 'sample input'
     const p = spec.prompt(arg).toLowerCase()
     for (const term of ['sota', 'pmid']) {
       assert.ok(!p.includes(term), `/${cmd} prompt references "${term}" the model cannot know`)
@@ -48,7 +45,6 @@ test('arxiv: prefix normalizes to the bare ID everywhere it matters', () => {
   assert.equal(prefixed, bare)
   assert.ok(!prefixed.includes('arxiv:'), 'prefix leaks into the brief')
   assert.equal(WORKFLOWS.audit.prompt('arxiv:2401.12345'), WORKFLOWS.audit.prompt('2401.12345'))
-  assert.equal(WORKFLOWS.paper.prompt({ id: 'arxiv:2401.12345' }), WORKFLOWS.paper.prompt({ id: '2401.12345' }))
 })
 test('arxiv: prefixes normalize inside ID lists, flags survive', () => {
   assert.equal(stripArxivPrefix('arxiv:2401.12345 arxiv:2402.67890'), '2401.12345 2402.67890')
@@ -68,37 +64,57 @@ test('slugify + loop args', () => {
   assert.deepEqual(parseLoopArgs(''), { target: '', rounds: 3 })
   assert.ok(loopFollowupPrompt('p', 2, 1).includes('round 2'))
 })
-test('rank args: every PaperRank flag parsed, unknowns rejected', () => {
-  assert.deepEqual(parseRankArgs('scaling laws --limit 5'), {
-    topic: 'scaling laws', limit: 5, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
-    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
-    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: [],
+test('summarize parses controls and quoted file paths, rejecting unsafe window settings', () => {
+  const defaults = parseSummarizeArgs('paper.pdf')
+  assert.deepEqual(defaults, { source: 'paper.pdf', windowSize: 6000, overlap: 500, tier1Threshold: 8000, tier2Threshold: 60000, unsupported: [], error: null })
+  assert.deepEqual(parseSummarizeArgs('--window-size 4000 "papers/my  study.pdf" --overlap 100 --tier1-threshold 5000 --tier2-threshold 20000'), {
+    source: 'papers/my  study.pdf', windowSize: 4000, overlap: 100, tier1Threshold: 5000, tier2Threshold: 20000, unsupported: [], error: null,
   })
-  assert.deepEqual(parseRankArgs('scaling laws'), {
-    topic: 'scaling laws', limit: 20, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
-    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
-    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: [],
-  })
-  const full = parseRankArgs('scaling laws --limit 5 --expand-citations 2 --full-text-top 3 --critique-top 4 --preference-file p.json --reproduction-notes r.json --synthesize --synthesis-top 6 --synthesis-model a/b --output-dir out --json')
-  assert.deepEqual(full, {
-    topic: 'scaling laws', limit: 5, expandCitations: 2, fullTextTop: 3, critiqueTop: 4,
-    preferenceFile: 'p.json', reproductionNotes: 'r.json', synthesize: true, synthesisTop: 6,
-    synthesisModel: 'a/b', outputDir: 'out', json: true, unsupported: [],
-  })
-  assert.deepEqual(parseRankArgs('scaling laws --bogus'), {
-    topic: 'scaling laws', limit: 20, expandCitations: 0, fullTextTop: 0, critiqueTop: 0,
-    preferenceFile: null, reproductionNotes: null, synthesize: false, synthesisTop: 7,
-    synthesisModel: null, outputDir: 'outputs', json: false, unsupported: ['--bogus'],
-  })
-  assert.deepEqual(parseRankArgs('scaling laws --limit 200').limit, 100)
-  // Bare flag values never become the topic.
-  assert.equal(parseRankArgs('--limit 5').topic, '')
+  assert.equal(parseSummarizeArgs("'papers/my study.pdf' --overlap 0").source, 'papers/my study.pdf')
+  for (const flags of ['--window-size', '--window-size nope', '--overlap -1', '--window-size 1.5', '--window-size 9007199254740992', '--window-size 0 --overlap 0', '--window-size 500', '--overlap 7000', '--tier1-threshold 0', '--tier2-threshold 8000', '--tier1-threshold 70000']) {
+    assert.ok(parseSummarizeArgs(`paper.pdf ${flags}`).error, `invalid controls accepted: ${flags}`)
+  }
+  assert.equal(parseSummarizeArgs('--overlap 0').source, '')
+  assert.deepEqual(parseSummarizeArgs('paper.pdf --invented').unsupported, ['--invented'])
 })
-test('paper args: flags parsed, multi-word titles kept, unknowns rejected', () => {
-  assert.deepEqual(parsePaperArgs('10.1234/abc --fetch-full-text --json'), { id: '10.1234/abc', fetchFullText: true, json: true, unsupported: [] })
-  assert.deepEqual(parsePaperArgs('attention is all you need'), { id: 'attention is all you need', fetchFullText: false, json: false, unsupported: [] })
-  assert.deepEqual(parsePaperArgs('2401.12345 --bogus'), { id: '2401.12345', fetchFullText: false, json: false, unsupported: ['--bogus'] })
-  assert.deepEqual(parsePaperArgs('--json'), { id: '', fetchFullText: false, json: true, unsupported: [] })
+
+test('summarize dispatcher validates before queuing and preserves attachments and resolved controls', async () => {
+  let handler
+  const messages = []
+  const agent = { session: { id: 'summary' }, followup: (message) => messages.push(message) }
+  apply({ effect: (fn) => fn(), commands: { register: (definition) => { handler = definition.handler; return () => {} } }, on: () => () => {}, get: () => undefined }, {})
+  for (const args of ['', '--overlap 0', 'paper.pdf --invented', 'paper.pdf --window-size 500', 'paper.pdf --tier1-threshold 0']) {
+    const result = await handler({ rawInput: `summarize ${args}`, agent, attachments: [] })
+    assert.equal(result.kind, 'error', result.text)
+  }
+  assert.equal(messages.length, 0, 'invalid settings queued work')
+  const attachment = { type: 'image', attachment: { hash: 'h', mediaType: 'image/png' } }
+  const result = await handler({ rawInput: 'summarize "papers/my study.pdf" --window-size 4000 --overlap 100', agent, attachments: [attachment] })
+  assert.equal(result.kind, 'success')
+  assert.equal(messages.length, 1)
+  assert.deepEqual(messages[0].content[0], attachment)
+  const brief = messages[0].content[1].text
+  assert.match(brief, /single-source summary of "papers\/my study.pdf"/)
+  assert.match(brief, /advancing by 3900 characters with 100 overlap/)
+  assert.match(brief, /outputs\/papers-my-study-pdf-summary\.md/)
+  const listed = await handler({ rawInput: 'outputs', agent, attachments: [] })
+  assert.equal(listed.kind, 'success')
+  assert.match(messages.at(-1).content[0].text, /\*-summary\.md summarize/)
+})
+
+test('upstream workflow contracts keep continuation, provenance, and evidence boundaries', () => {
+  assert.match(buildPrompt('deepresearch', 'topic'), /continue immediately in the same turn/)
+  assert.match(buildPrompt('deepresearch', 'show me the plan first'), /only when the user explicitly asked to review the plan first/)
+  assert.match(buildPrompt('lit', 'topic'), /outputs\/topic-lit-review\.provenance\.md/)
+  const research = buildPrompt('review', 'paper.pdf')
+  assert.match(research, /two independent indexes/)
+  assert.match(research, /launch receipt is not completion/)
+  assert.match(research, /stored key alone does not establish that access/)
+  assert.doesNotMatch(research, /Honk with Authorization/)
+  const summary = buildPrompt('summarize', parseSummarizeArgs('paper.pdf'))
+  assert.match(summary, /no external research/)
+  assert.match(summary, /decoded Unicode characters, not bytes/)
+  assert.match(summary, /missing\/failed chunks become explicit character-range coverage gaps/)
 })
 
 // Credential refs come from the row. `/feynman doctor` prints the live values.
@@ -181,41 +197,34 @@ test('one /feynman dispatcher covers every subcommand', async () => {
     assert.ok(Object.isFrozen(m.content), 'queued message content is frozen')
   }
   assert.equal(new Set(followups.map((m) => m.id)).size, followups.length, 'steering ids collide')
-  // Rank flags: everything flows through, unknowns fail loud instead of joining the topic.
-  const ranked = await run('rank scaling laws --limit 5')
-  assert.equal(ranked.kind, 'success')
-  assert.ok(followups.at(-1).content[0].text.includes('up to 5 seed candidates'), 'limit reaches the brief')
-  const flagged = await run('rank scaling laws --bogus')
-  assert.equal(flagged.kind, 'error')
-  assert.ok(flagged.text.includes('--bogus'), 'unsupported flag named')
-  // Full PaperRank surface lands in one brief.
-  const brief = WORKFLOWS.rank.prompt({
-    topic: 'x', limit: 5, expandCitations: 2, fullTextTop: 3, critiqueTop: 4,
-    preferenceFile: 'p.json', reproductionNotes: 'r.json', synthesize: true, synthesisTop: 6,
-    synthesisModel: 'a/b', outputDir: 'out', json: true,
-  })
-  for (const artifact of ['research-run.json', 'paper-rank.md', 'papers.jsonl', 'scores.jsonl', 'score-audit.md',
-    'rank-sensitivity.json', 'citation-graph.json', 'graph-explorer.html', 'field-map.json', 'rank.provenance.md',
-    'critique.md', 'score-calibration.json', 'reproduction-ledger.json', 'replication-plan.md',
-    'synthesis-packet.json', 'synthesis-prompt.md', 'model-synthesis.md']) {
-    assert.ok(brief.includes(artifact), `brief omits ${artifact}`)
-  }
-  // Paper flags: fetch + json reach the brief, unknowns fail loud.
-  const papered = await run('paper 2401.12345 --fetch-full-text --json')
-  assert.equal(papered.kind, 'success')
-  assert.ok(followups.at(-1).content[0].text.includes('fetch text only through source-sanctioned APIs'), 'fetch flag reaches the brief')
-  const paperFlagged = await run('paper 2401.12345 --bogus')
-  assert.equal(paperFlagged.kind, 'error')
-  assert.ok(paperFlagged.text.includes('--bogus'), 'unsupported paper flag named')
   // Doctor + status answer directly (no followup queued).
   const before = followups.length
   const doctor = await run('doctor')
   assert.equal(doctor.kind, 'success')
-  assert.ok(doctor.text.includes('pandoc'), 'doctor covers preview deps')
+  assert.ok(doctor.text.includes('credentials store'), 'doctor covers active seams')
   const status = await run('status')
   assert.equal(status.kind, 'success')
   assert.ok(status.text.includes('setup summary'), 'status summarizes setup')
   assert.equal(followups.length, before, 'diagnostics queue no model turn')
+})
+
+test('upstream-retired commands are absent from catalogs/help and cannot queue work', async () => {
+  let handler
+  const messages = []
+  const agent = { session: { id: 'removed' }, followup: (m) => messages.push(m), inject: (m) => messages.push(m) }
+  apply({ effect: (fn) => fn(), commands: { register: (definition) => { handler = definition.handler; return () => {} } }, on: () => () => {}, get: () => undefined }, {})
+  const help = await handler({ rawInput: 'help', agent, attachments: [] })
+  for (const sub of ['rank', 'paper', 'watch', 'jobs', 'preview', 'feynman-model', 'web-results']) {
+    assert.equal(Object.hasOwn(WORKFLOWS, sub), false)
+    assert.equal(Object.hasOwn(SESSION_COMMANDS, sub), false)
+    assert.ok(!help.text.split('\n').some((line) => line.startsWith(`  ${sub} `) || line.startsWith(`  ${sub}:`)))
+    const result = await handler({ rawInput: `${sub} sample`, agent, attachments: [] })
+    assert.equal(result.kind, 'error')
+    assert.match(result.text, /Unknown subcommand/)
+    const attached = await handler({ rawInput: `${sub} sample`, agent, attachments: [{ type: 'text', text: 'keep me' }] })
+    assert.equal(attached.kind, 'error', 'removed commands must leave attachments in the composer')
+  }
+  assert.equal(messages.length, 0)
 })
 
 // The registry hands admitted attachments to the handler, and a handler that
@@ -234,15 +243,15 @@ test('subcommands that queue no message refuse attachments instead of dropping t
   }, {})
   const image = Object.freeze({ type: 'image', attachment: { hash: 'h', mediaType: 'image/png' } })
   const run = (rawInput) => handler({ rawInput, agent, attachments: [image] })
-  for (const line of ['', 'help', 'doctor', 'status', 'keys', 'jobs', 'feynman-model', 'web-results',
-    'search scaling', 'thinking', 'thinking high', 'review-loop stop']) {
+  for (const line of ['', 'help', 'doctor', 'status', 'keys',
+    'thinking', 'thinking high', 'review-loop stop']) {
     const result = await run(line)
     assert.equal(result.kind, 'error', `/feynman ${line} dropped an attachment: ${result.text}`)
     assert.match(result.text, /attachments/)
   }
   assert.equal(followups.length + injected.length, 0, 'a refused invocation queued a message')
   // Every message-queuing subcommand carries the attachment into the model turn.
-  for (const line of ['deepresearch x', 'review-loop paper.pdf 2', 'rank x', 'paper 2401.1', 'preview', 'log', 'init', 'outputs', 'btw why']) {
+  for (const line of ['deepresearch x', 'review-loop paper.pdf 2', 'summarize paper.pdf', 'log', 'init', 'outputs', 'btw why']) {
     const result = await run(line)
     assert.equal(result.kind, 'success', `/feynman ${line}: ${result.text}`)
     const sent = [...followups, ...injected].at(-1)
@@ -250,45 +259,6 @@ test('subcommands that queue no message refuse attachments instead of dropping t
   }
 })
 
-// JobRegistry.list(caller?: SessionId) returns the caller's own jobs plus
-// unowned ones; any other caller value sees only the unowned jobs.
-test('/feynman jobs lists the jobs this session owns', async () => {
-  let handler
-  const jobs = [
-    { id: 'shell-1', label: 'train', status: 'running', owner: 'sess-1' },
-    { id: 'shell-2', label: 'other session', status: 'running', owner: 'sess-2' },
-  ]
-  const registry = {
-    list: (caller) => jobs.filter((job) => job.owner === undefined || job.owner === caller),
-  }
-  apply({
-    effect: (fn) => { fn(); return () => {} },
-    commands: { register: (d) => { handler = d.handler; return () => {} } },
-    on: () => () => {},
-    get: (key) => key === 'jobs' ? registry : undefined,
-  }, {})
-  const agent = { id: 'sess-1', session: { id: 'sess-1' } }
-  const result = await handler({ rawInput: 'jobs', agent, attachments: [] })
-  assert.equal(result.kind, 'success')
-  assert.match(result.text, /shell-1: train \[running\]/)
-  assert.ok(!result.text.includes('shell-2'), 'another session\'s job leaked')
-})
-
-// An absent jobs seam is unknown job state, not an empty job list.
-test('/feynman jobs without a jobs seam says so instead of reporting no jobs', async () => {
-  let handler
-  apply({
-    effect: (fn) => { fn(); return () => {} },
-    commands: { register: (d) => { handler = d.handler; return () => {} } },
-    on: () => () => {},
-    get: () => undefined,
-  }, {})
-  const result = await handler({ rawInput: 'jobs', agent: { id: 's', session: { id: 's' } }, attachments: [] })
-  assert.ok(!result.text.includes('No background jobs'), `an unmounted seam read as an empty list: ${result.text}`)
-  assert.match(result.text, /not mounted/)
-})
-
-// The round count is capped at 10, not absorbed into the artifact name.
 test('review-loop clamps an out-of-range round count to the cap', async () => {
   let handler
   const followups = []
@@ -303,7 +273,7 @@ test('review-loop clamps an out-of-range round count to the cap', async () => {
   for (const [line, rounds] of [['review-loop paper.pdf 20', 10], ['review-loop paper.pdf 0', 1]]) {
     assert.equal((await run(line)).kind, 'success')
     const text = followups.at(-1).content[0].text
-    assert.ok(text.includes('review of "paper.pdf"'), `${line}: the round count leaked into the artifact name`)
+    assert.ok(text.includes('research artifact: paper.pdf'), `${line}: the round count leaked into the artifact name`)
     assert.ok(text.includes(`Round 1 of ${rounds};`), `${line}: expected ${rounds} rounds`)
     assert.match((await run('review-loop stop')).text, /for "paper\.pdf" stopped/)
   }
@@ -406,42 +376,6 @@ test('review-loop state is per apply instance', async () => {
   assert.ok(leaked.text.includes('No review loop'), 'second instance sees the first instance loop')
   const owned = await first('review-loop stop')
   assert.ok(owned.text.includes('stopped after 0 round'), 'first instance lost its own loop')
-})
-
-// /feynman search does the work it names: mounted seam → real hits, absent
-// seam → an error, never a success claiming a search that never ran.
-test('search returns real hits from the session-query seam', async () => {
-  const calls = []
-  let handler
-  apply({
-    effect: (fn) => { fn(); return () => {} },
-    commands: { register: (d) => { handler = d.handler; return () => {} } },
-    on: () => () => {},
-    get: (key) => key === 'sessionQuery' ? {
-      searchSessions: async (request) => {
-        calls.push(request)
-        return { items: [{ header: { id: 's-42' }, bestMatch: { snippet: 'a hit about\nscaling laws' } }] }
-      },
-    } : undefined,
-  }, {})
-  const result = await handler({ rawInput: 'search scaling laws', agent: {}, attachments: [] })
-  assert.equal(result.kind, 'success')
-  assert.deepEqual(calls, [{ query: 'scaling laws', limit: 10 }], 'the seam was actually called')
-  assert.ok(result.text.includes('s-42'), 'hit id rendered')
-  assert.ok(result.text.includes('a hit about scaling laws'), 'snippet rendered')
-})
-
-test('an unmounted session-query seam is an error, not a fake success', async () => {
-  let handler
-  apply({
-    effect: (fn) => { fn(); return () => {} },
-    commands: { register: (d) => { handler = d.handler; return () => {} } },
-    on: () => () => {},
-    get: () => undefined,
-  }, {})
-  const result = await handler({ rawInput: 'search anything', agent: {}, attachments: [] })
-  assert.equal(result.kind, 'error', 'must not claim work it did not do')
-  assert.ok(result.text.includes('not mounted'))
 })
 
 // /feynman doctor must read the settings service the harness actually mounts
@@ -563,10 +497,7 @@ const DIGEST_ARGS = {
   compare: 'arxiv:1 arxiv:2',
   draft: '--from-session',
   autoresearch: 'prompt optimisation',
-  watch: 'agentic coding',
-  rank: parseRankArgs('graph nets --limit 50 --expand-citations 3 --full-text-top 5 --critique-top 4 --preference-file p.json --reproduction-notes r.json --synthesize --synthesis-top 9 --synthesis-model p/m --output-dir out --json'),
-  paper: parsePaperArgs('arxiv:2301.00001 --fetch-full-text --json'),
-  preview: 'outputs/x.md',
+  summarize: parseSummarizeArgs('papers/long report.pdf --window-size 4000 --overlap 100 --tier1-threshold 5000 --tier2-threshold 20000'),
 }
 
 test('every workflow brief is byte-identical to the reviewed text', () => {
@@ -579,13 +510,13 @@ test('every workflow brief is byte-identical to the reviewed text', () => {
   digest.update(loopFollowupPrompt('paper X', 2, 2))
   assert.equal(
     digest.digest('hex'),
-    'cc03475f8518326051ccb309049c4419777d2a6cde7b938d8a51b747f7da486c',
+    '5ee79a9916d71acd0618e8a6f7ce9706f1327698d1b7127723156569a0f60ff9',
     'prompt text changed: update the digest deliberately',
   )
 })
 
 test('prompt construction stays inside its CPU-time budget', () => {
-  const kinds = ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'watch', 'preview', 'rank', 'paper']
+  const kinds = ['deepresearch', 'lit', 'review', 'audit', 'replicate', 'recipe', 'compare', 'draft', 'autoresearch', 'summarize']
   let sink = 0
   // One batch = every workflow once. The denominator is a fixed reference that
   // builds the same shape of text (per-workflow concatenation, joined) without
@@ -594,7 +525,7 @@ test('prompt construction stays inside its CPU-time budget', () => {
   // 0.64us baseline relies on the host being quiet, and a loaded host tripped
   // it on contention alone (2.198us/build). String assembly is what both sides
   // spend, so contention lands on both and divides out.
-  const REFERENCE_LINES = 20
+  const REFERENCE_LINES = 40
   const measuredBatch = (iterations) => {
     for (let i = 0; i < iterations; i += 1) {
       sink += kinds.map((kind) => buildPrompt(kind, DIGEST_ARGS[kind], {})).join('\u0000').length
@@ -629,8 +560,9 @@ test('prompt construction stays inside its CPU-time budget', () => {
   const ratio = pairedRatio(measuredBatch, referenceBatch, 400, 10)
   assert.ok(sink > 0)
   console.log(`feynman-prompt: ${ratio.toFixed(2)}x the reference assembly`)
-  // Recorded range for this ratio: 1.75-2.10x; 3.2x is a 55% budget that still
-  // fails a doubled batch.
+  // Full upstream protocols roughly double the rendered payload of the old
+  // briefs; the reference now allocates 40 lines rather than 20. The 3.2x
+  // regression budget remains unchanged (Node baseline about 2.1x).
   assert.ok(
     ratio <= 3.2,
     `prompt build cost ${ratio.toFixed(2)}x the reference assembly; limit 3.2x`,

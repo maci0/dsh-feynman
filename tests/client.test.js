@@ -193,7 +193,7 @@ test('open card shows configured badges without leaking literals', async () => {
   })
   const Card = registered[0].component
   React.reset()
-  assert.equal(Card({ view: 'summary' }), 'Hugging Face and AlphaXiv keys, stored in the credentials file.')
+  assert.equal(Card({ view: 'summary' }), 'Hugging Face credentials and a legacy AlphaXiv key. Use /feynman alpha login for AlphaXiv.')
   // The summary and the page are separate slot instances, each with its own hooks.
   React.reset()
   Card({ view: 'page' })
@@ -222,7 +222,7 @@ test('open card shows configured badges without leaking literals', async () => {
     inputs.map((input) => input.props['aria-label']),
     // The card already names the credential ref in the visible label; the field
     // carries that same name so the two cannot drift apart.
-    ['New value for Hugging Face API key (HF_TOKEN)', 'New value for AlphaXiv API key (ALPHAXIV_API_KEY)'],
+    ['New value for Hugging Face API key (HF_TOKEN)', 'New value for Legacy AlphaXiv API key (ALPHAXIV_API_KEY)'],
   )
 })
 

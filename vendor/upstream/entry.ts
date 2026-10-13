@@ -1,0 +1,9 @@
+export { registerAlphaTools } from "./alpha.js";
+export { registerHuggingFaceTools } from "./huggingface.js";
+export { registerScienceDatabaseTools } from "./science-databases.js";
+export { docxText } from "./docx-fallback.js";
+export { withResearchRequest } from "../../lib/transport.js";
+export { createNativeExecutor } from "../docparser/native-executor.ts";
+export { registerDocumentParseTool } from "../docparser/tool.ts";
+export { registerDocumentSearchTool } from "../docparser/search-tool.ts";
+export { registerDocumentScreenshotTool } from "../docparser/screenshot-tool.ts";
