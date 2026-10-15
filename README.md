@@ -7,7 +7,7 @@ The plugin supplies 11 workflows, 16 session commands, 16 research skills, and f
 ## Install
 
 ```sh
-dsh plugin --profile web add github:maci0/dsh-feynman#v0.22.0
+dsh plugin --profile web add github:maci0/dsh-feynman#v0.22.1
 ```
 
 Install as a bundle, then restart `dsh web` and refresh the browser. The package's own `cordis.patch.yml` mounts its writable configuration row. Do not also insert the row into the profile patch: Cordis does not deduplicate row IDs.

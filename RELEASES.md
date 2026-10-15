@@ -1,3 +1,13 @@
+## v0.22.1
+
+Track DeepSeek Harness 0.2.1-alpha.3.
+
+- Move the dsh packages to 0.2.1-alpha.3 and vendored cordis and schemastery to their alpha.2 builds.
+- Raise the DSH floor to 0.2.1-alpha.3, the version `dsh-credentials` and `dsh-attachment` are pinned to. The 0.2.1-alpha.2 floor no longer describes what this release resolves.
+- Rebuild the lockfile from scratch. An incremental resolve keeps already-locked peer entries, which left 17 transitive peers on 0.2.1-alpha.2 where dsh-tools@0.2.1-alpha.3 requires 0.2.1-alpha.3 from its peers.
+
+Upgrade requires DSH `>=0.2.1-alpha.3 <0.3.0`, Node `^22.22.0 || >=24.0.0`, a DSH restart and browser refresh. AlphaXiv uses OAuth through `/feynman alpha login`; a legacy API key does not authenticate it. Provider, terminal and general session controls remain DSH-owned.
+
 # Releases
 
 ## v0.22.0
