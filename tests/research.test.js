@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { createResearchTools } from '../lib/research-tools.js'
 import { createNativeExecutor } from '../lib/upstream.js'
@@ -12,6 +12,9 @@ import { apply } from '../index.js'
 import { createWorkflowTool } from '../lib/workflow-tool.js'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
+
+const scratch = fileURLToPath(new URL('../.scratch/', import.meta.url))
+await mkdir(scratch, { recursive: true })
 
 const refs = () => ({ hfTokenEnv: 'TEST_HF_REF', alphaxivTokenEnv: 'TEST_ALPHA_REF' })
 const execution = (cwd, signal = new AbortController().signal) => ({
@@ -108,8 +111,8 @@ function pdfFixture() {
 }
 
 test('real document worker parses, searches, screenshots, and rejects workspace escapes', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'feynman-doc-test-'))
-  const outside = await mkdtemp(join(tmpdir(), 'feynman-outside-'))
+  const root = await mkdtemp(join(scratch, 'feynman-doc-test-'))
+  const outside = await mkdtemp(join(scratch, 'feynman-outside-'))
   const executor = createNativeExecutor()
   const saved = []
   const tools = createResearchTools({ get: (name) => name === 'attachments' ? { saveImage: async (image) => { saved.push(image); return { hash: 'fixture-png', mediaType: 'image/png', width: 300, height: 150 } } } : undefined }, refs, false, executor)
@@ -133,7 +136,7 @@ test('real document worker parses, searches, screenshots, and rejects workspace 
 })
 
 test('DOCX fallback handles thrown parser errors and preserves text beyond the preview', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'feynman-docx-test-'))
+  const root = await mkdtemp(join(scratch, 'feynman-docx-test-'))
   let outputPath
   try {
     const text = `${'Evidence '.repeat(8000)}final paragraph`
