@@ -286,12 +286,23 @@ test('review-loop clamps an out-of-range round count to the cap', async () => {
 function loopHarness() {
   const followups = []
   const session = { id: 'loop-session' }
-  const agent = { id: 'loop-session', session, followup: (m) => followups.push(m), inject: () => {} }
+  const pending = []
+  const agent = {
+    id: 'loop-session', session, whenIdle: () => Promise.resolve(),
+    followup: (m) => { followups.push(m); pending.push(m) }, inject: () => {},
+    inbox: { nextTurn: pending, remove: (id) => {
+      const at = pending.findIndex((message) => message.id === id)
+      if (at < 0) return false
+      pending.splice(at, 1)
+      return true
+    } },
+  }
+  const effects = []
   const listeners = {}
   let handler
   const registry = new Map([['loop-session', agent]])
   apply({
-    effect: (fn) => { fn(); return () => {} },
+    effect: (fn) => { effects.push(fn()); return () => {} },
     commands: { register: (d) => { handler = d.handler; return () => {} } },
     on: (event, fn) => { listeners[event] = fn; return () => {} },
     // `agents` is injected, so the plugin reads it directly.
@@ -301,14 +312,18 @@ function loopHarness() {
   const emit = (type, data) => listeners['session/event'](session, { type, data })
   return {
     followups,
+    agent,
+    dispose: () => { for (const off of effects.reverse()) off?.() },
     session,
     listeners,
     run: (rawInput) => handler({ rawInput, agent, attachments: [] }),
     /** One turn: optionally carrying `message`, ending with `reason`. */
-    turn: (message, reason = { kind: 'completed' }) => {
+    turn: async (message, reason = { kind: 'completed' }) => {
+      if (message !== undefined) agent.inbox.remove(message.id)
       emit('turn/start', { turn: 1 })
       if (message !== undefined) emit('user/message', message)
       emit('turn/end', { turn: 1, reason })
+      await Promise.resolve()
     },
   }
 }
@@ -317,16 +332,16 @@ test('review-loop advances only on the turn its own queued message opened', asyn
   const loop = loopHarness()
   assert.equal((await loop.run('review-loop paper.pdf 3')).kind, 'success')
   assert.equal(loop.followups.length, 1, 'round 1 queued at dispatch')
-  loop.turn()
+  await loop.turn()
   assert.equal(loop.followups.length, 1, 'a turn already running at dispatch is not round 1')
-  loop.turn({ id: 'human-message', role: 'user', content: [] })
+  await loop.turn({ id: 'human-message', role: 'user', content: [] })
   assert.equal(loop.followups.length, 1, 'an unrelated turn is not a round')
-  loop.turn(loop.followups[0])
+  await loop.turn(loop.followups[0])
   assert.equal(loop.followups.length, 2, 'round 2 queued after the round 1 turn')
   assert.ok(loop.followups[1].content[0].text.includes('round 2'), 'round 2 brief')
-  loop.turn(loop.followups[1])
+  await loop.turn(loop.followups[1])
   assert.equal(loop.followups.length, 3, 'round 3 queued after the round 2 turn')
-  loop.turn(loop.followups[2])
+  await loop.turn(loop.followups[2])
   assert.equal(loop.followups.length, 3, 'loop ends after the final round')
   assert.ok((await loop.run('review-loop stop')).text.includes('No review loop'))
 })
@@ -334,12 +349,58 @@ test('review-loop advances only on the turn its own queued message opened', asyn
 // A round turn that errors, is aborted, or ends any way but `completed` ends
 // the loop: its queued message is spent, so waiting for another completion
 // would let an unrelated turn count as the round.
+test('review-loop queues after publication, and stop withdraws only its pending round', async () => {
+  const loop = loopHarness()
+  let publishing = false
+  const followup = loop.agent.followup
+  loop.agent.followup = (message) => {
+    assert.equal(publishing, false, 'followup reentered event publication')
+    followup(message)
+  }
+  await loop.run('review-loop paper.pdf 3')
+  publishing = true
+  const turn = loop.turn(loop.followups[0])
+  publishing = false
+  await turn
+  assert.equal(loop.followups.length, 2)
+  loop.agent.inbox.nextTurn.push({ id: 'unrelated' })
+  await loop.run('review-loop stop')
+  assert.deepEqual(loop.agent.inbox.nextTurn.map((message) => message.id), ['unrelated'])
+})
+
+test('a deferred review-loop round cannot survive stop, replacement, or unload', async () => {
+  for (const action of ['stop', 'replace', 'unload']) {
+    const loop = loopHarness()
+    let idle
+    loop.agent.whenIdle = () => new Promise((resolve) => { idle = resolve })
+    await loop.run('review-loop paper.pdf 3')
+    await loop.turn(loop.followups[0])
+    if (action === 'stop') assert.match((await loop.run('review-loop stop')).text, /stopped after 1 round/)
+    else if (action === 'replace') await loop.run('review-loop other.pdf 2')
+    else loop.dispose()
+    const before = loop.followups.length
+    idle()
+    await Promise.resolve()
+    assert.equal(loop.followups.length, before, action)
+  }
+})
+
+test('a replacement review loop withdraws the previous pending round only', async () => {
+  const loop = loopHarness()
+  await loop.run('review-loop old.pdf 3')
+  loop.agent.inbox.nextTurn.push({ id: 'unrelated' })
+  await loop.run('review-loop new.pdf 2')
+  assert.equal(loop.agent.inbox.nextTurn.length, 2)
+  assert.equal(loop.agent.inbox.nextTurn[0].id, 'unrelated')
+  assert.match(loop.agent.inbox.nextTurn[1].content[0].text, /new\.pdf/)
+})
+
 test('a review-loop round that does not complete ends the loop', async () => {
   for (const reason of [{ kind: 'error', error: { message: 'x', code: 'UNKNOWN' } }, { kind: 'aborted', reason: { kind: 'user' } }]) {
     const loop = loopHarness()
     await loop.run('review-loop paper.pdf 3')
-    loop.turn(loop.followups[0], reason)
-    loop.turn(loop.followups[0])
+    await loop.turn(loop.followups[0], reason)
+    await loop.turn(loop.followups[0])
     assert.equal(loop.followups.length, 1, `${reason.kind}: the loop queued another round`)
     assert.ok((await loop.run('review-loop stop')).text.includes('No review loop'), `${reason.kind}: loop state survived`)
   }
@@ -451,7 +512,7 @@ test('real Cordis composition mounts the plugin and tears it down', async () => 
   const registered = []
   const session = { id: 'real-session' }
   const followups = []
-  const agent = { id: 'real-session', session, followup: (m) => followups.push(m), inject: () => {} }
+  const agent = { id: 'real-session', session, whenIdle: () => Promise.resolve(), followup: (m) => followups.push(m), inject: () => {} }
   const ctx = new Context()
   ctx.provide('commands', {
     register: (definition) => {
@@ -471,6 +532,7 @@ test('real Cordis composition mounts the plugin and tears it down', async () => 
   // The review-loop driver is live on the real event bus.
   ctx.emit('session/event', session, { type: 'user/message', data: followups[0] })
   ctx.emit('session/event', session, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  await Promise.resolve()
   assert.equal(followups.length, 2, 'turn/end advanced the loop through the real bus')
 
   await fiber.dispose()
@@ -559,7 +621,7 @@ test('prompt construction stays inside its CPU-time budget', () => {
     }
     return median(ratios)
   }
-  const ratio = pairedRatio(measuredBatch, referenceBatch, 400, 10)
+  const ratio = pairedRatio(measuredBatch, referenceBatch, 41, 10)
   assert.ok(sink > 0)
   console.log(`feynman-prompt: ${ratio.toFixed(2)}x the reference assembly`)
   // Normalize by rendered payload size so adding evidence instructions does

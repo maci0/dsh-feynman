@@ -246,6 +246,7 @@ function workflowHandler(kind, invocation, state) {
   if (kind === 'review-loop' && args.toLowerCase() === 'stop') {
     const loop = state.loops.get(invocation.agent.session.id)
     if (!loop) return { kind: 'success', text: 'No review loop is running.' }
+    if (loop.pending !== undefined) invocation.agent.inbox?.remove(loop.pending)
     state.loops.delete(invocation.agent.session.id)
     return { kind: 'success', text: `Review loop for "${loop.target}" stopped after ${loop.round - 1} round(s).` }
   }
@@ -276,6 +277,8 @@ function workflowHandler(kind, invocation, state) {
 function reviewLoopPrompt(invocation, args, state) {
   const { target, rounds } = parseLoopArgs(args)
   if (!target) return null
+  const previous = state.loops.get(invocation.agent.session.id)
+  if (previous?.pending !== undefined) invocation.agent.inbox?.remove(previous.pending)
   // `pending`: id of the queued round message; `open`: its turn has started.
   state.loops.set(invocation.agent.session.id, { target, rounds, round: 1, pending: undefined, open: false })
   const brief = buildPrompt('review-loop', target, liveRefs(state))
@@ -485,12 +488,16 @@ export function apply(ctx, config = {}) {
         return
       }
       loop.round += 1
-      const message = userMessage({ attachments: [], agent }, loopFollowupPrompt(loop.target, loop.round, loop.rounds - loop.round))
-      loop.pending = message.id
-      agent.followup(message)
+      // followup appends: wait until publication and the retiring turn settle.
+      void agent.whenIdle().then(() => {
+        if (state.loops.get(session.id) !== loop || ctx.agents.get(session.id) !== agent) return
+        const message = userMessage({ attachments: [], agent }, loopFollowupPrompt(loop.target, loop.round, loop.rounds - loop.round))
+        loop.pending = message.id
+        agent.followup(message)
+      }).catch(() => { if (state.loops.get(session.id) === loop) state.loops.delete(session.id) })
     })
     // A session that goes away mid-loop takes its loop state with it.
     const offDisposed = ctx.on('session/disposed', (session) => { state.loops.delete(session.id); state.curator.delete(session.id) })
-    return () => { offTurn?.(); offDisposed?.(); for (const d of disposers) d() }
+    return () => { offTurn?.(); offDisposed?.(); state.loops.clear(); for (const d of disposers) d() }
   })
 }

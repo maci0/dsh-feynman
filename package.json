@@ -1,13 +1,13 @@
 {
   "name": "@maci0/dsh-feynman",
-  "version": "0.22.1",
+  "version": "0.23.0",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "type": "module",
   "main": "index.js",
-  "description": "Feynman-style research workflows for DeepSeek Harness behind one /feynman command (deepresearch, review, audit, review-loop, …)",
+  "description": "Feynman-style research workflows for DeepSeek Harness behind one /feynman command (deepresearch, review, audit, review-loop, \u2026)",
   "license": "MIT",
   "exports": {
     ".": "./index.js",

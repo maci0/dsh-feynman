@@ -7,7 +7,7 @@ The plugin supplies 11 workflows, 16 session commands, 16 research skills, and f
 ## Install
 
 ```sh
-dsh plugin --profile web add github:maci0/dsh-feynman#v0.22.1
+dsh plugin --profile web add --save-exact @maci0/dsh-feynman@0.23.0
 ```
 
 Install as a bundle, then restart `dsh web` and refresh the browser. The package's own `cordis.patch.yml` mounts its writable configuration row. Do not also insert the row into the profile patch: Cordis does not deduplicate row IDs.
@@ -17,6 +17,8 @@ Node `^22.22.0 || >=24.0.0` is required; the Alpha Hub dependency sets the Node 
 ## Research workflows
 
 Each workflow queues a frozen, plugin-branded user message as the next model turn. Attachments are carried into that turn. Bare `/feynman` opens a subcommand picker; selecting a command that needs arguments returns its usage line.
+
+Stopping a review loop removes its queued round prompt. An already running turn finishes.
 
 | Command | Result |
 |---|---|

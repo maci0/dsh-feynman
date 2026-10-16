@@ -197,7 +197,7 @@ test('open card shows configured badges without leaking literals', async () => {
   // The summary and the page are separate slot instances, each with its own hooks.
   React.reset()
   Card({ view: 'page' })
-  await new Promise((resolve) => setTimeout(resolve, 10))
+  await new Promise((resolve) => setImmediate(resolve))
   React.reset()
   const open = Card({ view: 'page' })
   assertRenderable(open)
@@ -258,7 +258,7 @@ test('malformed describe responses cannot reach the render', async () => {
     const Card = registered[0].component
     React.reset()
     Card({ view: 'page' })
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await new Promise((resolve) => setImmediate(resolve))
     React.reset()
     assertRenderable(Card({ view: 'page' }), JSON.stringify(payload)?.slice(0, 40))
   }
@@ -289,7 +289,7 @@ test('a renamed credential reference drops the old answer and is re-read', async
   const Card = registered[0].component
   React.reset()
   Card({ view: 'page' })
-  await new Promise((resolve) => setTimeout(resolve, 10))
+  await new Promise((resolve) => setImmediate(resolve))
   React.reset()
   assert.ok(textOf(Card({ view: 'page' })).includes('HF_TOKEN: set'), 'the configured reference reads set')
 
@@ -297,7 +297,7 @@ test('a renamed credential reference drops the old answer and is re-read', async
   // then reports a change for it.
   snapshot.value.hfTokenEnv = 'HF_TOKEN_NEW'
   for (const handler of credentialHandlers) handler('HF_TOKEN')
-  await new Promise((resolve) => setTimeout(resolve, 10))
+  await new Promise((resolve) => setImmediate(resolve))
 
   assert.ok(described.includes('HF_TOKEN_NEW'), 'the invalidation never asked about the reference the card shows')
   React.reset()
@@ -346,7 +346,7 @@ test('a renamed reference is re-read without an invalidation and shows unknown m
   const Card = registered[0].component
   React.reset()
   const before = Card({ view: 'page' }).children[0].children.filter(node => typeof node.type === 'function')
-  await new Promise((resolve) => setTimeout(resolve, 10))
+  await new Promise((resolve) => setImmediate(resolve))
   snapshot.value.hfTokenEnv = 'HF_RENAMED'
   React.reset()
   const after = Card({ view: 'page' })
@@ -357,7 +357,7 @@ test('a renamed reference is re-read without an invalidation and shows unknown m
   assert.ok(described.includes('HF_RENAMED'), 'the rename never asked about the reference the card shows')
   assert.ok(pending.includes('HF_RENAMED: …'), `an unanswered reference must read unknown: ${pending}`)
   release()
-  await new Promise((resolve) => setTimeout(resolve, 10))
+  await new Promise((resolve) => setImmediate(resolve))
   React.reset()
   assert.ok(textOf(Card({ view: 'page' })).includes('HF_RENAMED: set'))
 })
@@ -407,7 +407,7 @@ test('a failed credentials lookup reads unknown, never not set', async () => {
     const Card = registered[0].component
     React.reset()
     Card({ view: 'page' })
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await new Promise((resolve) => setImmediate(resolve))
     React.reset()
     const page = Card({ view: 'page' })
     const text = textOf(page)
@@ -535,10 +535,9 @@ test('picker build and card render stay inside their CPU-time budget', async () 
     return median(ratios)
   }
 
-  // The picker call is ~10us, so 10-call blocks keep the microsecond resolution
-  // under 1%; the render call is ~30us and needs no batching.
-  const optionsRatio = pairedRatio(options, referenceOptions, 1000, 10)
-  const renderRatio = pairedRatio(render, referenceRender, 4000, 1)
+  // Ten-call blocks amortize timer resolution without thousands of samples.
+  const optionsRatio = pairedRatio(options, referenceOptions, 101, 10)
+  const renderRatio = pairedRatio(render, referenceRender, 101, 10)
   assert.ok(sink > 0)
   console.log(
     `feynman-perf: picker ${optionsRatio.toFixed(2)}x the reference build, `

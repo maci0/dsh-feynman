@@ -1,3 +1,12 @@
+## v0.23.0
+
+- Wait for agent quiescence before queuing the next review round, avoiding event-publication reentry.
+- Remove queued review prompts when a loop is stopped or replaced; an already running turn finishes.
+- Reduce benchmark oversampling and replace fixed UI-test sleeps with event-loop synchronization.
+- Install the release from npm with an exact version pin.
+
+Restart DSH and refresh the browser after upgrading.
+
 ## v0.22.1
 
 Track DeepSeek Harness 0.2.1-alpha.3.
