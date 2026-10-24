@@ -163,6 +163,7 @@ test('DOCX fallback handles thrown parser errors and preserves text beyond the p
 test('all research skills load with bounded locators and all four roles have evidence contracts', async () => {
   const provider = createResearchSkillProvider()
   const candidates = await provider.list()
+  assert.ok(candidates.every(candidate => candidate.provider === provider.name))
   assert.ok(candidates.length >= 16)
   for (const candidate of candidates) {
     const skill = await provider.get(candidate)
