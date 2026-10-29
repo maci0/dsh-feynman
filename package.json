@@ -1,6 +1,6 @@
 {
   "name": "@maci0/dsh-feynman",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
@@ -61,12 +61,13 @@
   },
   "engines": {
     "node": "^22.22.0 || >=24.0.0",
-    "dsh": ">=0.2.1-rc.2 <0.3.0"
+    "dsh": ">=0.2.2-alpha.2 <0.3.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5",
-    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-attachment": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-credentials": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-alpha.2"
   },
   "repository": {
     "type": "git",
@@ -75,9 +76,9 @@
   "icon": "./icon.svg",
   "dependencies": {
     "@companion-ai/alpha-hub": "0.1.7",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-skill": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-tools": "0.2.2-alpha.2",
     "@deepseek-ai/schemastery": "3.18.5",
     "@llamaindex/liteparse": "2.10.1",
     "fast-xml-parser": "5.11.1",

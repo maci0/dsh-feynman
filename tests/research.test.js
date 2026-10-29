@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -167,6 +168,7 @@ test('all research skills load with bounded locators and all four roles have evi
   assert.ok(candidates.length >= 16)
   for (const candidate of candidates) {
     const skill = await provider.get(candidate)
+    assert.equal(skill.resourceBase.kind, 'directory')
     assert.ok(skill.content.length > 50, candidate.name)
     assert.ok(candidate.name.startsWith('feynman-'))
   }
@@ -237,6 +239,7 @@ test('research tools mount, execute, and unload through the real DSH tool runtim
   const sections = new Set()
   ctx.provide('systemPrompt', { tools: () => () => {}, section: (section) => { sections.add(section.name); return () => sections.delete(section.name) } })
   const runtime = new ToolRuntime(ctx)
+  const toolExecutor = await ctx.plugin(NativeToolExecutor)
   const registered = []
   ctx.provide('commands', { register: (definition) => { registered.push(definition); return () => registered.splice(registered.indexOf(definition), 1) } })
   ctx.provide('agents', { get: () => undefined })
@@ -250,11 +253,12 @@ test('research tools mount, execute, and unload through the real DSH tool runtim
     assert.ok(runtime.schemas().some((tool) => tool.name === 'feynman_workflow'))
     assert.ok((await provider.list()).length >= 16)
     globalThis.fetch = async () => new Response(JSON.stringify({ id: 'lab/data', tags: ['fixture'] }), { headers: { 'content-type': 'application/json' } })
-    const result = await runtime.execute({ name: 'hf_dataset_info', arguments: { dataset: 'lab/data' }, callId: 'real-runtime-call', signal: new AbortController().signal })
+    const batch = await runtime.execute({ calls: [{ type: 'tool-call', name: 'hf_dataset_info', arguments: JSON.stringify({ dataset: 'lab/data' }), id: 'real-runtime-call' }], signal: new AbortController().signal })
+    const result = batch.results[0].result
     assert.equal(result.isError, false, JSON.stringify(result))
     assert.equal(result.value.details.id, 'lab/data')
     assert.match(result.content[0].text, /lab\/data/)
-  } finally { globalThis.fetch = original; await fiber.dispose() }
+  } finally { globalThis.fetch = original; await fiber.dispose(); await toolExecutor.dispose() }
   assert.deepEqual(runtime.schemas(), [])
   assert.equal(provider, undefined)
   assert.equal(registered.length, 0)

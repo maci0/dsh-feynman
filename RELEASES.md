@@ -1,3 +1,11 @@
+## v0.24.1
+
+- Support DSH `>=0.2.2-alpha.2 <0.3.0` with matching dependency pins.
+- Include the skill provider identity in every research skill and declare directory resources using the current skill API.
+- Verify tool execution through the native executor and batch API.
+
+Restart DSH and refresh the browser after upgrading.
+
 ## v0.24.0
 
 - Update DSH dependencies to 0.2.1-rc.2 and Cordis utilities to their matching stable releases.
