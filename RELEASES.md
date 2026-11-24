@@ -1,3 +1,9 @@
+## v0.24.3
+
+- Support DSH `>=0.2.2-rc.4 <0.3.0` with matching dependency pins.
+
+Restart DSH and refresh the browser after upgrading.
+
 ## v0.24.2
 
 - Support DSH `>=0.2.2-alpha.3 <0.3.0` with matching dependency pins.
