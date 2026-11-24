@@ -70,6 +70,7 @@ function loadBundle({ snapshot, credentials, servedNamespace }) {
   const decorated = []
   const submitted = []
   const requestedNamespaces = []
+  const disposers = []
   // The settings domain serves one form per mounted row, keyed by the row id.
   // A `servedNamespace` narrows this stub to that one namespace: any other
   // `configForms.get` resolves to a form the Host never serves.
@@ -100,7 +101,10 @@ function loadBundle({ snapshot, credentials, servedNamespace }) {
       register: (entry, component) => { registered.push({ entry, component }); return () => {} },
     },
     remote,
-    effect: (fn) => { fn() },
+    effect: (fn) => {
+      const dispose = fn()
+      if (typeof dispose === 'function') disposers.push(dispose)
+    },
     commandUi: { decorate: (spec) => { decorated.push(spec); return () => {} } },
     sessions: {
       binding: () => ({ session: { command: (line) => { submitted.push(line); return Promise.resolve({ ok: true, value: { matched: true } }) } } }),
@@ -108,7 +112,27 @@ function loadBundle({ snapshot, credentials, servedNamespace }) {
   }
   const bundle = definition.factory(() => React)
   bundle.apply(ctx)
-  return { bundle, registered, decorated, submitted, React, localeRegistrations, requestedNamespaces, credentialHandlers }
+  const dispose = () => { for (const disposer of disposers.splice(0).reverse()) disposer() }
+  return { bundle, registered, decorated, submitted, React, localeRegistrations, requestedNamespaces, credentialHandlers, dispose }
+}
+
+/** A `document` with just the head a stylesheet is appended to. */
+function createDocument() {
+  const head = { children: [], append: (node) => { head.children.push(node) } }
+  return {
+    head,
+    createElement: (tagName) => {
+      const attributes = new Map()
+      const node = {
+        tagName: tagName.toUpperCase(),
+        textContent: '',
+        setAttribute: (name, value) => { attributes.set(name, String(value)) },
+        getAttribute: (name) => attributes.get(name) ?? null,
+        remove: () => { head.children = head.children.filter((child) => child !== node) },
+      }
+      return node
+    },
+  }
 }
 
 const readySnapshot = {
@@ -163,6 +187,27 @@ test('card registers under the research-keys namespace', () => {
   assert.equal(locale.localeOrDicts, 'en', 'registered through the single-locale form')
   assert.equal(typeof locale.dict, 'object')
   assert.ok(locale.dict.summary && locale.dict.hint, 'English copy present')
+})
+
+test('apply installs one tagged stylesheet and dispose removes it', () => {
+  const document = createDocument()
+  const styles = () => document.head.children.filter((node) =>
+    node.tagName === 'STYLE' && node.getAttribute('data-plugin') === '@maci0/dsh-feynman')
+  globalThis.document = document
+  let loaded
+  try {
+    loaded = loadBundle({
+      snapshot: readySnapshot,
+      credentials: { describe: async () => ({ ok: true, value: {} }) },
+    })
+  } finally {
+    delete globalThis.document
+  }
+
+  assert.equal(styles().length, 1)
+  assert.match(styles()[0].textContent, /\.rk-/u)
+  loaded.dispose()
+  assert.equal(styles().length, 0)
 })
 
 test('client entry exports no values beyond cordis loading', () => {

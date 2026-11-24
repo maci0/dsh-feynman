@@ -1,3 +1,9 @@
+## v0.24.4
+
+- Remove the card stylesheet when the plugin unloads; DSH no longer does it for the plugin.
+
+Refresh the browser after upgrading.
+
 ## v0.24.3
 
 - Support DSH `>=0.2.2-rc.4 <0.3.0` with matching dependency pins.
